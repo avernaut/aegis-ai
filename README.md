@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="assets/aegis-ai-logo.png" alt="AegisAI" width="220">
+</p>
+
+<h1 align="center">AegisAI</h1>
+
+<p align="center">
+  <img src="assets/aegis-ai-banner.png" alt="AegisAI" width="100%">
+</p>
+
 # AegisAI Compiler
 
 > **Intelligence without uncontrolled authority.**
