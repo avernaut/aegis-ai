@@ -1,0 +1,18 @@
+{
+  "placements": {
+    "Sentinel": {
+      "environment": "5g",
+      "region": "EU",
+      "data_residency": "EU",
+      "latency_ms": 4.2,
+      "network": "mec"
+    }
+  },
+  "twins": {
+    "EdgeTwin": {
+      "availability_loss": 0.002,
+      "latency_delta": 1.7
+    }
+  },
+  "approvals": {}
+}

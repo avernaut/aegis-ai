@@ -1,6 +1,6 @@
-# AegisAI Language Draft v0.3
+# AegisAI Language Draft v0.4
 
-AegisAI v0.3 is an experimental language for **bounded autonomous intelligence**. It separates AI reasoning from operational authority and now carries this separation from static checking into runtime enforcement.
+AegisAI v0.4 is an experimental language for **bounded autonomous intelligence**. It separates AI reasoning from operational authority and now carries this separation from static checking into runtime enforcement.
 
 ## Security-qualified data
 
@@ -27,7 +27,7 @@ sanitize user_prompt as safe_prompt
 print(safe_prompt)
 ```
 
-`sanitize` is an explicit trusted boundary. v0.3 does not claim that the sanitization algorithm itself is formally verified.
+`sanitize` is an explicit trusted boundary. v0.4 does not claim that the sanitization algorithm itself is formally verified.
 
 ## Evidence and trust
 
@@ -69,7 +69,7 @@ Agent capabilities are operational authority. Model capabilities describe AI fun
 
 ## Policies
 
-v0.3 evaluates a deliberately small, auditable policy language:
+v0.4 evaluates a deliberately small, auditable policy language:
 
 ```aegis
 policy MitigationPolicy {
@@ -115,7 +115,7 @@ authorize BlockHost using MitigationPolicy
 action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
 ```
 
-`authorize` identifies the policy decision point. In v0.3 the named policy is actually evaluated at runtime.
+`authorize` identifies the policy decision point. In v0.4 the named policy is evaluated at runtime.
 
 ## Capability tokens
 
@@ -209,8 +209,8 @@ Rollback targets must be marked `reversible`.
 
 ## Compilation targets
 
-- `python`: Python prototype backend embedding AIR 0.3 and the runtime boundary.
-- `air`: Aegis Intermediate Representation 0.3 in JSON.
+- `python`: Python prototype backend embedding AIR 0.4 and the runtime boundary.
+- `air`: Aegis Intermediate Representation 0.4 in JSON.
 
 ## Runtime command
 
@@ -218,7 +218,7 @@ Rollback targets must be marked `reversible`.
 aegis run program.aegis --context context.json --key-file /path/to/key --audit audit.json
 ```
 
-## Static checks in v0.3
+## Static checks in v0.4
 
 - security-level information flow
 - taint flow and explicit sanitization
@@ -233,7 +233,7 @@ aegis run program.aegis --context context.json --key-file /path/to/key --audit a
 - mandatory prior Twin validation before `execute`
 - secure-transaction rollback reversibility
 
-## Runtime checks in v0.3
+## Runtime checks in v0.4
 
 - proposal guard evaluation
 - policy evaluation with deny override
@@ -242,3 +242,69 @@ aegis run program.aegis --context context.json --key-file /path/to/key --audit a
 - Digital Twin guard evaluation
 - action/token/proposal binding
 - tamper-evident provenance hash-chain generation
+
+---
+
+# v0.4 Trust-Fabric Additions
+
+## Asymmetric capability credentials
+
+```aegis
+credential FirewallCredential for Sentinel capability propose.firewall ttl 300 issuer "AegisAI-Lab"
+```
+
+A `credential` is an Ed25519-signed runtime authority. It is statically bound to an existing agent and capability and has the same maximum TTL rules as legacy tokens. The issuer must have a configured signing identity at runtime.
+
+## Typed effect adapters
+
+```aegis
+adapter EdgeFirewallAdapter {
+    effects [write.firewall]
+    mode external
+    trust_zone "edge-prod"
+}
+```
+
+`mode simulation` may use the built-in no-op adapter. `mode external` requires the host runtime to bind an implementation explicitly.
+
+Execution can select an adapter:
+
+```aegis
+execute QuarantineHost using FirewallCredential via EdgeFirewallAdapter
+```
+
+The compiler rejects an adapter whose effect set does not contain the action effect.
+
+## Digital Twin connectors
+
+```aegis
+twin_connector EdgeTwinConnector {
+    transport context
+    timeout_ms 1000
+}
+```
+
+Supported transports in v0.4 are `context` and `https`. HTTPS endpoints must use an `https://` URL and runtime network access remains opt-in.
+
+A Twin binds to a connector:
+
+```aegis
+twin EdgeTwin {
+    target production
+    connector EdgeTwinConnector
+    require availability_loss < 0.01
+}
+```
+
+## Placement
+
+```aegis
+placement Sentinel at 5g {
+    region "EU"
+    data_residency "EU"
+    max_latency_ms 10
+    network "mec"
+}
+```
+
+Supported environments are `cloud`, `edge`, `5g`, and `onprem`. v0.4 validates placement declarations statically and compares them with observed runtime placement telemetry.

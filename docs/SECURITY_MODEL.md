@@ -1,4 +1,4 @@
-# AegisAI v0.3 Security Model
+# AegisAI v0.4 Security Model
 
 AegisAI implements a research prototype of **bounded intelligence**: AI components may reason and recommend, but operational authority is represented separately and checked at multiple boundaries.
 
@@ -20,7 +20,7 @@ AegisAI implements a research prototype of **bounded intelligence**: AI componen
 
 ## Policy model
 
-v0.3 evaluates a restricted policy language. Authorization is default deny. A matching deny rule immediately rejects the proposal. Human-approval requirements are evaluated after the condition becomes true and cannot be satisfied implicitly.
+v0.4 evaluates a restricted policy language. Authorization is default deny. A matching deny rule immediately rejects the proposal. Human-approval requirements are evaluated after the condition becomes true and cannot be satisfied implicitly.
 
 ## Capability-token model
 
@@ -34,7 +34,7 @@ The SHA-256 ledger is tamper-evident within the recorded chain. It does not, by 
 
 ## Digital Twin model
 
-Twin constraints are evaluated against supplied runtime metrics. v0.3 does not establish the authenticity of those metrics. A production system should obtain them from an authenticated Digital Twin or telemetry service with freshness and provenance guarantees.
+Twin constraints are evaluated against runtime metrics obtained from a declared connector. v0.4 supports context and opt-in HTTPS connectors, but production systems still require authenticated transport, freshness and provenance guarantees.
 
 ## Sanitization model
 
@@ -55,15 +55,30 @@ Twin constraints are evaluated against supplied runtime metrics. v0.3 does not e
 
 ## Important non-goals
 
-v0.3 does not yet provide:
+v0.4 does not yet provide:
 
 - production-grade sandbox isolation
-- real firewall/IAM/cloud side-effect connectors
-- authenticated Digital Twin transport
+- bundled production firewall/IAM/cloud side-effect connectors
+- complete mTLS/service-mesh Digital Twin authentication
 - hardware-backed key storage
 - remote attestation
 - prompt-injection detection or LLM-content safety guarantees
 - formal non-interference proof
 - Byzantine-resistant distributed audit storage
 
-AegisAI v0.3 is a research compiler/runtime and should not be treated as a production security boundary without additional hardening.
+AegisAI v0.4 is a research compiler/runtime and should not be treated as a production security boundary without additional hardening.
+
+---
+
+# v0.4 Security Invariants
+
+v0.4 adds the following invariants:
+
+1. **Asymmetric authority** — a capability credential is accepted only when its Ed25519 signature, issuer/key ID, TTL, agent and capability all verify.
+2. **Adapter effect typing** — an action cannot be routed through a declared adapter that does not handle the action's effect.
+3. **External adapter explicitness** — `mode external` cannot silently fall back to simulation or implicit system access; a host adapter must be bound.
+4. **Remote Twin opt-in** — HTTPS Twin transport is disabled unless the runtime explicitly enables remote Twin access.
+5. **Placement consistency** — declared Cloud/Edge/5G/on-prem constraints are checked against observed runtime telemetry before the security pipeline proceeds.
+6. **Anchored provenance** — the local SHA-256 audit chain can be bound to an externally verifiable Ed25519 signature over its final root.
+
+These mechanisms reduce, but do not eliminate, trust in the host environment. A compromised host, private-key store, external adapter or Twin service remains outside the guarantees of the language-level checks and therefore requires independent hardening.

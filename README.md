@@ -6,57 +6,49 @@
 
 > **Intelligence without uncontrolled authority.**
 
-AegisAI is an experimental programming language, compiler and bounded-authority runtime for **AI-native cybersecurity**. It makes security levels, trust, evidence, risk, capabilities, policy decisions, digital-twin validation and audit provenance explicit parts of the language rather than conventions hidden in application code.
+AegisAI is an experimental programming language, compiler and secure runtime for **AI-native cybersecurity**. It makes information flow, trust, evidence, risk, capabilities, policy, Digital Twin validation, deployment constraints and audit provenance explicit language concepts.
 
-This repository contains **AegisAI v0.3.0**.
+This repository contains **AegisAI v0.4.0 — Production Trust Fabric**.
 
-## Why v0.3 matters
+## Why v0.4 matters
 
-AegisAI v0.2 separated an AI `proposal` from an authorized `action`. v0.3 adds the runtime enforcement layer so an action is still not executable merely because it exists in checked source code.
+v0.3 introduced verified autonomous execution: policy, runtime capability checks, Twin validation and a tamper-evident audit chain. v0.4 extends that execution boundary into a distributed trust fabric suitable for research prototypes spanning **Cloud, Edge, 5G/6G and security control planes**.
 
-The v0.3 execution chain is:
+The v0.4 trust chain is:
 
 ```text
-Observe -> Reason -> Propose -> Verify -> Policy -> Authorize
-                                             |
-                                             v
-                                  Capability Token
-                                             |
-                                             v
-                                  Digital Twin Validate
-                                             |
-                                             v
-                                          Execute
-                                             |
-                                             v
-                              Cryptographic Provenance
+AI reasoning
+    -> proposal + evidence + trust
+    -> policy authorization
+    -> Ed25519 capability credential (or legacy HMAC token)
+    -> Cloud / Edge / 5G placement validation
+    -> Digital Twin connector + safety guards
+    -> typed effect adapter
+    -> explicit execute
+    -> hash-chained provenance
+    -> externally verifiable Ed25519 provenance anchor
 ```
 
-The default runtime adapter is deliberately **NoOp/simulation-only**: the compiler and runtime validate authority, but this repository does not silently modify a firewall, identity provider or operating system.
+External effects and remote Digital Twin calls remain **explicit and opt-in**. The default adapter is simulation-only.
 
-## New in v0.3
+## New in v0.4
 
-- executable policy evaluation with security-first default deny
-- supported policy rules: `deny by default`, `allow all`, capability-scoped `allow`/`deny ... when ...`, and `require human when ...`
-- signed, expiring HMAC-SHA256 capability tokens
-- token/agent/capability consistency checks at compile time and runtime
-- explicit `confidence` on AI proposals
-- explicit `validate <action> with <twin>`
-- explicit `execute <action> using <token>`
-- mandatory prior twin validation before action execution
-- runtime evaluation of proposal guards
-- runtime evaluation of Digital Twin constraints against supplied metrics
-- human approval gates for critical operations
-- tamper-evident SHA-256 provenance hash chain
-- evidence values represented in provenance by hashes rather than raw values
-- `aegis run` command for bounded-authority execution
-- `aegis verify-audit` command for provenance-chain verification
-- AIR upgraded to **0.3**
-- Python backend embeds AIR and enters the AegisAI runtime for `execute`
+- **Ed25519 capability credentials** with issuer, key ID, TTL, agent and capability binding
+- legacy HMAC-SHA256 capability tokens retained for v0.3 compatibility
+- **typed effect adapters** with declared effect sets, trust zones and `simulation` / `external` modes
+- `execute ... via <adapter>` with compile-time and runtime effect compatibility checks
+- **Digital Twin connectors** with `context` and opt-in `https` transports
+- HTTPS Twin calls disabled unless `--allow-remote-twin` is explicitly supplied
+- **Cloud / Edge / 5G / on-prem placement primitives** with region, data residency, network and latency constraints
+- runtime placement validation against observed deployment telemetry
+- **Ed25519 provenance anchors** for externally verifiable audit roots
+- `aegis keygen` for Ed25519 key generation
+- `aegis verify-audit --require-anchor` for anchored audit verification
+- AIR upgraded to **0.4**
+- URL-safe lexer fix: `//` inside quoted HTTPS URLs is no longer treated as a comment
+- 0.1–0.3 security and runtime semantics retained
 
-All v0.2 static security mechanisms remain: information-flow control, taint tracking, effect checking, risk guards, capability envelopes, trust thresholds, evidence checks, authorization references and rollback validation.
-
-## Complete bounded-authority example
+## Production trust-fabric example
 
 ```aegis
 capability propose.firewall {
@@ -66,22 +58,28 @@ capability propose.firewall {
 
 model CyberFM {
     capabilities [classify, reason, explain]
-    trust 0.97
+    trust 0.98
     network none
 }
 
 agent Sentinel {
     uses CyberFM
     capabilities [propose.firewall]
-    trust 0.96
+    trust 0.97
 }
 
-evidence malicious_ip = "203.0.113.17" trust 0.98 source "ThreatIntel"
+placement Sentinel at 5g {
+    region "EU"
+    data_residency "EU"
+    max_latency_ms 10
+    network "mec"
+}
+
+evidence malicious_ip = "203.0.113.17" trust 0.99 source "ThreatIntel"
 
 policy MitigationPolicy {
     deny by default
     allow propose.firewall when evidence.trust >= 0.95
-    require human when risk == critical
 }
 
 proposal BlockHost risk high {
@@ -97,22 +95,133 @@ proposal BlockHost risk high {
 authorize BlockHost using MitigationPolicy
 action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
 
-token FirewallToken for Sentinel capability propose.firewall ttl 300
+credential FirewallCredential for Sentinel capability propose.firewall ttl 300 issuer "AegisAI-Lab"
+
+adapter EdgeFirewallAdapter {
+    effects [write.firewall]
+    mode simulation
+    trust_zone "edge-prod"
+}
+
+twin_connector EdgeTwinConnector {
+    transport context
+    timeout_ms 1000
+}
 
 twin EdgeTwin {
     target production
+    connector EdgeTwinConnector
     require availability_loss < 0.01
     require latency_delta < 5
 }
 
 validate QuarantineHost with EdgeTwin
-execute QuarantineHost using FirewallToken
+execute QuarantineHost using FirewallCredential via EdgeFirewallAdapter
 ```
 
-Runtime metrics are supplied separately, preserving a clean separation between checked source and observed runtime state:
+See `examples/production_fabric.aegis` for the complete executable example.
+
+## Install
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+```
+
+## Check and compile
+
+```bash
+aegis examples/production_fabric.aegis --check
+aegis examples/production_fabric.aegis -t air -o production.air.json
+aegis examples/production_fabric.aegis -t python -o production.py
+```
+
+## Generate Ed25519 keys
+
+```bash
+aegis keygen \
+  --private /tmp/aegis-credential-private.pem \
+  --public /tmp/aegis-credential-public.pem
+
+aegis keygen \
+  --private /tmp/aegis-audit-private.pem \
+  --public /tmp/aegis-audit-public.pem
+```
+
+Private key files are created with restrictive permissions where supported. Never commit them.
+
+## Run v0.4 through the secure runtime
+
+```bash
+aegis run examples/production_fabric.aegis \
+  --context examples/production_context.json \
+  --credential-key AegisAI-Lab=/tmp/aegis-credential-private.pem \
+  --trust-key AegisAI-Lab=/tmp/aegis-credential-public.pem \
+  --anchor-key /tmp/aegis-audit-private.pem \
+  --anchor-issuer AegisAI-Audit \
+  --audit /tmp/aegis-audit.json
+```
+
+The bundled `EdgeFirewallAdapter` declaration is `simulation`, therefore no real firewall is changed.
+
+Verify the audit chain and the external signature anchor:
+
+```bash
+aegis verify-audit /tmp/aegis-audit.json \
+  --anchor-public-key AegisAI-Audit=/tmp/aegis-audit-public.pem \
+  --require-anchor
+```
+
+## Remote Digital Twin connectors
+
+A Twin connector can be declared with HTTPS:
+
+```aegis
+twin_connector RemoteTwin {
+    transport https
+    endpoint "https://twin.example.net/validate"
+    timeout_ms 1500
+}
+```
+
+Network access is denied by default. It must be enabled explicitly:
+
+```bash
+aegis run ... --allow-remote-twin
+```
+
+Applications may instead inject a custom `TwinConnector` through the Python API, which is the recommended route for authenticated mTLS/service-mesh integrations.
+
+## Typed production adapters
+
+An external adapter declaration is not enough to execute an effect:
+
+```aegis
+adapter ProductionFirewall {
+    effects [write.firewall]
+    mode external
+    trust_zone "edge-prod"
+}
+```
+
+The Python host must also bind an adapter implementation whose `supported_effects` includes `write.firewall`. Missing or mismatched adapters are rejected at runtime.
+
+## Runtime context
+
+v0.4 recognizes placement and Twin observations in addition to proposal confidence and approvals:
 
 ```json
 {
+  "placements": {
+    "Sentinel": {
+      "environment": "5g",
+      "region": "EU",
+      "data_residency": "EU",
+      "latency_ms": 4.2,
+      "network": "mec"
+    }
+  },
   "twins": {
     "EdgeTwin": {
       "availability_loss": 0.002,
@@ -123,126 +232,45 @@ Runtime metrics are supplied separately, preserving a clean separation between c
 }
 ```
 
-## Install
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-```
-
-## Static checking
-
-```bash
-aegis examples/bounded_defense.aegis --check
-```
-
-## Compile to AIR 0.3
-
-```bash
-aegis examples/bounded_defense.aegis -t air -o bounded_defense.air.json
-```
-
-## Compile to Python
-
-```bash
-aegis examples/bounded_defense.aegis -t python -o bounded_defense.py
-```
-
-The generated Python does not bypass AegisAI. If the program contains `execute`, it invokes the same bounded-authority runtime and requires `AEGIS_RUNTIME_KEY`.
-
-## Run through the secure runtime
-
-Create a runtime key outside the source tree:
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))" > /tmp/aegis-runtime.key
-```
-
-Then execute in simulation mode:
-
-```bash
-aegis run examples/bounded_defense.aegis \
-  --context examples/runtime_context.json \
-  --key-file /tmp/aegis-runtime.key \
-  --audit /tmp/aegis-audit.json
-```
-
-The built-in adapter records a successful execution but performs **no external side effect**.
-
-Verify the resulting provenance chain:
-
-```bash
-aegis verify-audit /tmp/aegis-audit.json
-```
-
-## Compile-time security rejection examples
-
-AegisAI rejects, among other cases:
-
-```aegis
-data<string, secret> api_key = "do-not-print"
-print(api_key)
-```
-
-```aegis
-tainted<string> prompt = "untrusted" source "user"
-print(prompt)
-```
-
-It also rejects an `execute` statement unless a matching action exists, its token belongs to the correct agent and capability, and an explicit Digital Twin validation appears first.
-
-## Runtime security rejection examples
-
-Even code that passes static checks can still be blocked at runtime when observations change. Examples include:
-
-- a proposal guard such as `confidence > 0.95` becoming false;
-- a policy rule denying the capability;
-- a critical policy requiring human approval without an approval record;
-- a Digital Twin constraint failing;
-- an expired or tampered capability token;
-- a token signed with the wrong runtime key.
-
 ## Repository structure
 
 ```text
-assets/                     project branding
+assets/                     branding
 src/aegisai/
   ast.py                    AST and security/risk lattices
   lexer.py                  source preprocessing
   parser.py                 AegisAI parser
   checker.py                static security semantics
-  ir.py                     AIR 0.3 lowering
-  runtime.py                policy/token/twin/provenance runtime
+  ir.py                     AIR 0.4 lowering
+  credentials.py            Ed25519 credentials and provenance anchors
+  runtime.py                policy/placement/twin/adapter/provenance runtime
   codegen.py                Python backend
   compiler.py               compile/check/run APIs
   cli.py                    aegis CLI
-examples/                   safe, unsafe and runtime-context examples
+examples/                   safe, unsafe and runtime examples
 tests/                      compiler + runtime regression tests
-docs/
-  LANGUAGE.md               language reference
-  ARCHITECTURE.md           compiler/runtime architecture
-  SECURITY_MODEL.md         security invariants and threat model
-  RUNTIME.md                runtime and adapter model
+docs/                       language, architecture, security and runtime docs
 ```
 
 ## Core invariant
 
-AegisAI treats these as separate concepts:
-
 ```text
-intelligence != authority
-proposal     != action
-action       != execution
-authorization != capability token
-static safety != runtime safety
+intelligence       != authority
+proposal           != action
+action             != execution
+authorization      != capability credential
+credential         != effect adapter
+placement intent   != observed placement
+Twin declaration   != Twin validation
+hash chain         != externally anchored provenance
+static safety      != runtime safety
 ```
 
 That separation is the basis of **bounded intelligence**.
 
 ## Status
 
-AegisAI v0.3 is a **research prototype**, not a production security enforcement system. The policy engine, capability tokens, Digital Twin validation and provenance ledger are executable, but the default effect adapter is intentionally non-operational. Production adapters would require independent hardening, authentication, isolation, secret management and domain-specific validation.
+AegisAI v0.4 is a **research prototype**, not a certified production security enforcement system. The trust-fabric mechanisms are executable and testable, but production deployments still require independent hardening of key management, adapter implementations, remote Twin authentication, transport security, isolation, observability and domain-specific safety validation.
 
 ## License
 

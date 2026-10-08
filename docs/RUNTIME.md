@@ -1,87 +1,131 @@
-# AegisAI v0.3 Runtime
+# AegisAI v0.4 Runtime
 
-The runtime turns checked AIR 0.3 into a bounded-authority decision pipeline.
-
-## Running a program
-
-```bash
-aegis run examples/bounded_defense.aegis \
-  --context examples/runtime_context.json \
-  --key-file /path/to/runtime.key \
-  --audit /tmp/aegis-audit.json
-```
-
-The key must contain at least 16 bytes. It is never stored in AIR or source code.
+The v0.4 runtime executes AIR 0.4 as a distributed bounded-authority trust pipeline.
 
 ## Runtime order
-
-For every executable path, the runtime processes:
 
 ```text
 proposal guards
     -> policy decision
-    -> capability token issuance
-    -> Digital Twin validation
-    -> token verification
-    -> effect adapter
-    -> provenance event
+    -> capability authority
+         |- HMAC token (legacy)
+         `- Ed25519 credential (v0.4)
+    -> placement validation
+    -> Digital Twin connector + guards
+    -> typed effect adapter
+    -> execution
+    -> provenance hash-chain event
+    -> optional Ed25519 root anchor
 ```
 
-The source order of `validate` and `execute` is statically checked.
+Source ordering still requires Twin validation before `execute`.
 
-## Context schema
+## Capability credentials
 
-The context is intentionally open but the current runtime recognizes:
+v0.4 adds asymmetric capability credentials:
 
-```json
-{
-  "proposals": {
-    "ProposalName": {"confidence": 0.98}
-  },
-  "approvals": {
-    "ProposalName": true
-  },
-  "twins": {
-    "TwinName": {
-      "metric": 0.0
-    }
-  }
+```aegis
+credential FirewallCredential for Sentinel capability propose.firewall ttl 300 issuer "AegisAI-Lab"
+```
+
+The runtime signs the credential with the Ed25519 private key configured for the declared issuer. Verification binds:
+
+- issuer and key ID;
+- agent;
+- capability;
+- issue and expiration times;
+- unique nonce.
+
+Legacy `token` declarations continue to use HMAC-SHA256.
+
+## Placement validation
+
+```aegis
+placement Sentinel at 5g {
+    region "EU"
+    data_residency "EU"
+    max_latency_ms 10
+    network "mec"
 }
 ```
 
-## Safe expression evaluator
+Observed placement telemetry is supplied in runtime context under `placements.<agent>`. A mismatch blocks the pipeline.
 
-Policy and Twin expressions are parsed as expression ASTs. General Python calls, imports, indexing, comprehensions, lambdas and attribute access outside supplied dictionaries are rejected.
+## Digital Twin connectors
 
-## Effect adapters
+```aegis
+twin_connector EdgeTwinConnector {
+    transport context
+    timeout_ms 1000
+}
+```
 
-The interface is intentionally small:
+`context` reads Twin metrics from the supplied runtime context. `https` performs an HTTP JSON request only when `allow_remote_twin=True` / `--allow-remote-twin` is explicitly enabled.
+
+Python hosts can inject a custom connector:
 
 ```python
-class EffectAdapter(Protocol):
+class TwinConnector:
+    def metrics(self, twin: dict, action: dict, context: dict) -> dict: ...
+```
+
+Custom connectors are preferred for authenticated service-to-service integration.
+
+## Typed effect adapters
+
+```aegis
+adapter EdgeFirewallAdapter {
+    effects [write.firewall]
+    mode external
+    trust_zone "edge-prod"
+}
+
+execute QuarantineHost using FirewallCredential via EdgeFirewallAdapter
+```
+
+At compile time, the adapter must declare the action's effect. At runtime, an external adapter implementation must be explicitly supplied and its `supported_effects` must include the effect.
+
+```python
+class EffectAdapter:
+    supported_effects: set[str]
     def execute(self, action: dict, context: dict) -> dict: ...
 ```
 
-The bundled `NoOpAdapter` performs no external action. Applications may inject their own adapter through the Python API, but production adapters are outside the trust claims of v0.3.
+Simulation adapters fall back to the built-in no-op implementation if no host adapter is bound.
+
+## Provenance anchoring
+
+The ledger remains a SHA-256 hash chain. v0.4 can additionally sign the final root using Ed25519. This creates an external verification object containing issuer, key ID, root hash, timestamp and signature.
+
+```bash
+aegis verify-audit audit.json \
+  --anchor-public-key AegisAI-Audit=/path/audit-public.pem \
+  --require-anchor
+```
+
+## Key generation
+
+```bash
+aegis keygen --private private.pem --public public.pem
+```
+
+The CLI reports the public key ID derived from SHA-256 of the raw public key.
 
 ## Python API
 
 ```python
 from aegisai import run_source
+from aegisai.credentials import SigningIdentity
 
 result = run_source(
     source,
     context=context,
-    runtime_key=key,
+    credential_signers={"AegisAI-Lab": credential_signer},
+    trusted_issuers={"AegisAI-Lab": credential_public_key},
+    provenance_signer=audit_signer,
+    adapters={"EdgeFirewallAdapter": firewall_adapter},
+    twin_connectors={"EdgeTwinConnector": twin_connector},
 )
-
-print(result.to_dict())
 ```
 
-## Audit verification
-
-```bash
-aegis verify-audit /tmp/aegis-audit.json
-```
-
-Any modification of an entry's payload, sequence, timestamp, previous hash or hash makes the chain invalid.
+All external adapters and connectors remain host-controlled dependencies rather than implicit language privileges.

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+- Added Ed25519 capability credentials with issuer/key-ID/TTL/agent/capability binding.
+- Added `credential ... issuer ...` as an asymmetric alternative to legacy HMAC capability tokens.
+- Added typed effect adapters with effect sets, trust zones and `simulation` / `external` modes.
+- Added `execute ... via <adapter>` and compile-time/runtime adapter-effect validation.
+- Added Digital Twin connector declarations with `context` and explicit opt-in `https` transports.
+- Added runtime `TwinConnector` injection and guarded HTTP JSON Twin connector support.
+- Added first-class `placement <agent> at cloud|edge|5g|onprem` constraints.
+- Added runtime placement validation for environment, region, data residency, network and latency.
+- Added externally verifiable Ed25519 provenance anchors over the final hash-chain root.
+- Added `aegis keygen` and anchored audit verification via `aegis verify-audit --require-anchor`.
+- Upgraded AIR from 0.3 to 0.4 with `capability.credential`, `effect.adapter`, `twin.connector` and `deployment.placement`.
+- Preserved v0.3 HMAC token execution for compatibility.
+- Fixed lexer handling of `//` inside quoted HTTPS URLs.
+- Expanded the compiler/runtime regression suite to cover the v0.4 trust fabric.
+
 ## 0.3.0
 
 - Added executable bounded-authority runtime.

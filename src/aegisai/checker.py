@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 import re
 from .ast import *
+
 
 @dataclass
 class Diagnostic:
@@ -9,10 +11,12 @@ class Diagnostic:
     kind: str
     message: str
 
+
 class SecurityError(Exception):
     def __init__(self, diagnostics: list[Diagnostic]):
         self.diagnostics = diagnostics
         super().__init__("; ".join(d.message for d in diagnostics))
+
 
 _POLICY_RULES = [
     re.compile(r"^deny by default$"),
@@ -38,8 +42,13 @@ def check(program: Program) -> list[Diagnostic]:
     proposals: dict[str, ProposalDecl] = {}
     actions: dict[str, ActionDecl] = {}
     tokens: dict[str, TokenDecl] = {}
+    credentials: dict[str, CredentialDecl] = {}
+    adapters: dict[str, AdapterDecl] = {}
+    twin_connectors: dict[str, TwinConnectorDecl] = {}
     twins: dict[str, TwinDecl] = {}
+    placements: dict[str, PlacementDecl] = {}
     diagnostics: list[Diagnostic] = []
+
     positions = {id(s): i for i, s in enumerate(program.statements)}
     auth_stmts = [s for s in program.statements if isinstance(s, AuthorizeStmt)]
     validate_stmts = [s for s in program.statements if isinstance(s, TwinValidateStmt)]
@@ -74,8 +83,18 @@ def check(program: Program) -> list[Diagnostic]:
             duplicate(stmt.name, stmt.line, actions); actions[stmt.name] = stmt
         elif isinstance(stmt, TokenDecl):
             duplicate(stmt.name, stmt.line, tokens); tokens[stmt.name] = stmt
+        elif isinstance(stmt, CredentialDecl):
+            duplicate(stmt.name, stmt.line, credentials); credentials[stmt.name] = stmt
+        elif isinstance(stmt, AdapterDecl):
+            duplicate(stmt.name, stmt.line, adapters); adapters[stmt.name] = stmt
+        elif isinstance(stmt, TwinConnectorDecl):
+            duplicate(stmt.name, stmt.line, twin_connectors); twin_connectors[stmt.name] = stmt
         elif isinstance(stmt, TwinDecl):
             duplicate(stmt.name, stmt.line, twins); twins[stmt.name] = stmt
+        elif isinstance(stmt, PlacementDecl):
+            if stmt.target in placements:
+                diagnostics.append(Diagnostic(stmt.line, "PLACEMENT", f"target '{stmt.target}' has more than one placement declaration"))
+            placements[stmt.target] = stmt
 
     # Sanitization creates a new public, untainted symbol only from tainted input.
     for stmt in program.statements:
@@ -92,6 +111,14 @@ def check(program: Program) -> list[Diagnostic]:
             diagnostics.append(Diagnostic(p.line, "TAINT", f"tainted value '{p.expr}' cannot flow to public output before sanitization"))
         if p.expr in symbols and LEVELS[symbols[p.expr][1]] > LEVELS["public"]:
             diagnostics.append(Diagnostic(p.line, "SECURITY", f"'{p.expr}' is {symbols[p.expr][1]} and cannot flow to public output"))
+
+    def check_authority(agent: AgentDecl | None, capability: str, name: str, line: int, kind: str):
+        if agent is None:
+            return
+        if capability in agent.denied:
+            diagnostics.append(Diagnostic(line, kind, f"{kind.lower()} '{name}' requests capability '{capability}' denied to agent '{agent.name}'"))
+        elif capability not in agent.capabilities:
+            diagnostics.append(Diagnostic(line, kind, f"{kind.lower()} '{name}' requests capability '{capability}' not granted to agent '{agent.name}'"))
 
     for stmt in program.statements:
         if isinstance(stmt, PrintStmt):
@@ -114,6 +141,27 @@ def check(program: Program) -> list[Diagnostic]:
                 if not _valid_policy_rule(rule):
                     diagnostics.append(Diagnostic(stmt.line, "POLICY", f"policy '{stmt.name}' contains unsupported rule '{rule}'"))
 
+        elif isinstance(stmt, AdapterDecl):
+            if not stmt.effects:
+                diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"adapter '{stmt.name}' must declare at least one handled effect"))
+            if stmt.mode not in {"simulation", "external"}:
+                diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"adapter '{stmt.name}' has unsupported mode '{stmt.mode}'"))
+            if not stmt.trust_zone:
+                diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"adapter '{stmt.name}' must declare a non-empty trust zone"))
+
+        elif isinstance(stmt, TwinConnectorDecl):
+            if stmt.transport == "https":
+                if not stmt.endpoint or not stmt.endpoint.startswith("https://"):
+                    diagnostics.append(Diagnostic(stmt.line, "TWIN", f"HTTPS twin connector '{stmt.name}' requires an https:// endpoint"))
+            if stmt.timeout_ms <= 0 or stmt.timeout_ms > 60000:
+                diagnostics.append(Diagnostic(stmt.line, "TWIN", f"twin connector '{stmt.name}' timeout_ms must be between 1 and 60000"))
+
+        elif isinstance(stmt, TwinDecl):
+            if stmt.connector and stmt.connector not in twin_connectors:
+                diagnostics.append(Diagnostic(stmt.line, "TWIN", f"twin '{stmt.name}' references unknown connector '{stmt.connector}'"))
+            if not stmt.guards:
+                diagnostics.append(Diagnostic(stmt.line, "TWIN", f"twin '{stmt.name}' must declare at least one safety guard"))
+
         elif isinstance(stmt, AgentDecl):
             if stmt.model and stmt.model not in models:
                 diagnostics.append(Diagnostic(stmt.line, "AI", f"agent '{stmt.name}' references unknown model '{stmt.model}'"))
@@ -123,6 +171,14 @@ def check(program: Program) -> list[Diagnostic]:
                         diagnostics.append(Diagnostic(stmt.line, "CAPABILITY", f"agent '{stmt.name}' references undeclared capability '{cap}'"))
             for cap in sorted(stmt.capabilities & stmt.denied):
                 diagnostics.append(Diagnostic(stmt.line, "CAPABILITY", f"agent '{stmt.name}' both allows and denies capability '{cap}'"))
+
+        elif isinstance(stmt, PlacementDecl):
+            if stmt.target not in agents:
+                diagnostics.append(Diagnostic(stmt.line, "PLACEMENT", f"placement references unknown agent '{stmt.target}'"))
+            if stmt.max_latency_ms is not None and stmt.max_latency_ms <= 0:
+                diagnostics.append(Diagnostic(stmt.line, "PLACEMENT", f"placement for '{stmt.target}' max_latency_ms must be positive"))
+            if stmt.data_residency and stmt.region and stmt.data_residency != stmt.region:
+                diagnostics.append(Diagnostic(stmt.line, "PLACEMENT", f"placement for '{stmt.target}' region '{stmt.region}' conflicts with data_residency '{stmt.data_residency}'"))
 
         elif isinstance(stmt, ProposalDecl):
             agent = agents.get(stmt.agent)
@@ -190,6 +246,18 @@ def check(program: Program) -> list[Diagnostic]:
             if stmt.ttl_seconds <= 0 or stmt.ttl_seconds > 86400:
                 diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token '{stmt.name}' ttl must be between 1 and 86400 seconds"))
 
+        elif isinstance(stmt, CredentialDecl):
+            agent = agents.get(stmt.agent)
+            if agent is None:
+                diagnostics.append(Diagnostic(stmt.line, "CREDENTIAL", f"credential '{stmt.name}' references unknown agent '{stmt.agent}'"))
+            if stmt.capability not in capabilities:
+                diagnostics.append(Diagnostic(stmt.line, "CREDENTIAL", f"credential '{stmt.name}' references undeclared capability '{stmt.capability}'"))
+            check_authority(agent, stmt.capability, stmt.name, stmt.line, "CREDENTIAL")
+            if stmt.ttl_seconds <= 0 or stmt.ttl_seconds > 86400:
+                diagnostics.append(Diagnostic(stmt.line, "CREDENTIAL", f"credential '{stmt.name}' ttl must be between 1 and 86400 seconds"))
+            if not stmt.issuer:
+                diagnostics.append(Diagnostic(stmt.line, "CREDENTIAL", f"credential '{stmt.name}' must declare an issuer"))
+
         elif isinstance(stmt, TwinValidateStmt):
             if stmt.action not in actions:
                 diagnostics.append(Diagnostic(stmt.line, "TWIN", f"validation references unknown action '{stmt.action}'"))
@@ -199,21 +267,29 @@ def check(program: Program) -> list[Diagnostic]:
         elif isinstance(stmt, ExecuteStmt):
             action = actions.get(stmt.action)
             token = tokens.get(stmt.token)
+            credential = credentials.get(stmt.token)
+            authority = token or credential
             if action is None:
                 diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"cannot execute unknown action '{stmt.action}'"))
-            if token is None:
-                diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"execution references unknown token '{stmt.token}'"))
+            if authority is None:
+                diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"execution references unknown token or credential '{stmt.token}'"))
             prior_validation = any(v.action == stmt.action and positions[id(v)] < positions[id(stmt)] for v in validate_stmts)
             if not prior_validation:
                 diagnostics.append(Diagnostic(stmt.line, "TWIN", f"action '{stmt.action}' must pass an explicit twin validation before execution"))
-            if action and token:
+            if stmt.adapter:
+                adapter = adapters.get(stmt.adapter)
+                if adapter is None:
+                    diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"execution references unknown adapter '{stmt.adapter}'"))
+                elif action and action.effect not in adapter.effects:
+                    diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"adapter '{adapter.name}' does not handle action effect '{action.effect}'"))
+            if action and authority:
                 proposal = proposals.get(action.proposal)
-                if token.capability != action.capability:
-                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token '{token.name}' capability '{token.capability}' does not match action capability '{action.capability}'"))
-                if proposal and token.agent != proposal.agent:
-                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token '{token.name}' belongs to agent '{token.agent}', not proposal agent '{proposal.agent}'"))
-                if positions[id(token)] > positions[id(stmt)]:
-                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token '{token.name}' must be declared before execution"))
+                if authority.capability != action.capability:
+                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' capability '{authority.capability}' does not match action capability '{action.capability}'"))
+                if proposal and authority.agent != proposal.agent:
+                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' belongs to agent '{authority.agent}', not proposal agent '{proposal.agent}'"))
+                if positions[id(authority)] > positions[id(stmt)]:
+                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' must be declared before execution"))
                 if positions[id(action)] > positions[id(stmt)]:
                     diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"action '{action.name}' must be declared before execution"))
 

@@ -119,10 +119,33 @@ class TokenDecl(Node):
     ttl_seconds: int
 
 @dataclass
+class CredentialDecl(Node):
+    name: str
+    agent: str
+    capability: str
+    ttl_seconds: int
+    issuer: str
+
+@dataclass
+class AdapterDecl(Node):
+    name: str
+    effects: set[str]
+    mode: str
+    trust_zone: str
+
+@dataclass
+class TwinConnectorDecl(Node):
+    name: str
+    transport: str
+    endpoint: str | None
+    timeout_ms: int
+
+@dataclass
 class TwinDecl(Node):
     name: str
     target: str
     guards: list[str]
+    connector: str | None = None
 
 @dataclass
 class TwinValidateStmt(Node):
@@ -133,6 +156,16 @@ class TwinValidateStmt(Node):
 class ExecuteStmt(Node):
     action: str
     token: str
+    adapter: str | None = None
+
+@dataclass
+class PlacementDecl(Node):
+    target: str
+    environment: str
+    region: str | None
+    data_residency: str | None
+    max_latency_ms: int | None
+    network: str | None
 
 @dataclass
 class IntentDecl(Node):

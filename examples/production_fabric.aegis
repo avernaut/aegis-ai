@@ -1,0 +1,94 @@
+data<string, public> banner = "AegisAI v0.4 production trust fabric"
+print(banner)
+
+capability read.telemetry {
+    effects [read.telemetry]
+    risk low
+}
+
+capability propose.firewall {
+    effects [write.firewall]
+    risk high
+}
+
+capability shell.execute {
+    effects [exec.shell]
+    risk critical
+}
+
+model CyberFM {
+    capabilities [classify, reason, explain]
+    trust 0.98
+    network none
+}
+
+agent Sentinel {
+    uses CyberFM
+    capabilities [read.telemetry, propose.firewall]
+    deny [shell.execute]
+    trust 0.97
+}
+
+placement Sentinel at 5g {
+    region "EU"
+    data_residency "EU"
+    max_latency_ms 10
+    network "mec"
+}
+
+evidence malicious_ip = "203.0.113.17" trust 0.99 source "ThreatIntel"
+evidence anomaly = "lateral movement score 0.99" trust 0.98 source "EdgeIDS"
+
+policy MitigationPolicy {
+    deny by default
+    allow propose.firewall when evidence.trust >= 0.95
+    require human when risk == critical
+}
+
+proposal BlockHost risk high {
+    by Sentinel
+    capability propose.firewall
+    evidence [malicious_ip, anomaly]
+    min_trust 0.95
+    confidence 0.99
+    require confidence > 0.95
+    effect write.firewall
+}
+
+authorize BlockHost using MitigationPolicy
+action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
+
+credential FirewallCredential for Sentinel capability propose.firewall ttl 300 issuer "AegisAI-Lab"
+
+adapter EdgeFirewallAdapter {
+    effects [write.firewall]
+    mode simulation
+    trust_zone "edge-prod"
+}
+
+twin_connector EdgeTwinConnector {
+    transport context
+    timeout_ms 1000
+}
+
+twin EdgeTwin {
+    target production
+    connector EdgeTwinConnector
+    require availability_loss < 0.01
+    require latency_delta < 5
+}
+
+validate QuarantineHost with EdgeTwin
+
+intent ProtectEdge {
+    objective availability >= 0.9999
+    objective intrusion_risk < 0.01
+    constraint customer_data_exposure == 0
+}
+
+secure transaction ContainThreat {
+    action QuarantineHost
+    rollback QuarantineHost
+}
+
+execute QuarantineHost using FirewallCredential via EdgeFirewallAdapter

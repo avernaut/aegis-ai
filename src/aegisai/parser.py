@@ -22,10 +22,14 @@ AGENT_RE = re.compile(rf'^agent\s+(?P<name>{IDENT})\s*\{{$')
 PROPOSAL_RE = re.compile(rf'^proposal\s+(?P<name>{IDENT})\s+risk\s+(?P<risk>low|medium|high|critical)\s*\{{$')
 AUTHORIZE_RE = re.compile(rf'^authorize\s+(?P<proposal>{IDENT})\s+using\s+(?P<policy>{IDENT})$')
 TOKEN_RE = re.compile(rf'^token\s+(?P<name>{IDENT})\s+for\s+(?P<agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?$')
+CREDENTIAL_RE = re.compile(rf'^credential\s+(?P<name>{IDENT})\s+for\s+(?P<agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?\s+issuer\s+(?P<issuer>.+)$')
+ADAPTER_RE = re.compile(rf'^adapter\s+(?P<name>{IDENT})\s*\{{$')
+TWIN_CONNECTOR_RE = re.compile(rf'^twin_connector\s+(?P<name>{IDENT})\s*\{{$')
 ACTION_RE = re.compile(rf'^action\s+(?P<name>{IDENT})\s+from\s+(?P<proposal>{IDENT})\s+effect\s+(?P<effect>{CAP})\s+capability\s+(?P<cap>{CAP})(?P<rev>\s+reversible)?$')
 TWIN_RE = re.compile(rf'^twin\s+(?P<name>{IDENT})\s*\{{$')
 VALIDATE_RE = re.compile(rf'^validate\s+(?P<action>{IDENT})\s+with\s+(?P<twin>{IDENT})$')
-EXECUTE_RE = re.compile(rf'^execute\s+(?P<action>{IDENT})\s+using\s+(?P<token>{IDENT})$')
+EXECUTE_RE = re.compile(rf'^execute\s+(?P<action>{IDENT})\s+using\s+(?P<token>{IDENT})(?:\s+via\s+(?P<adapter>{IDENT}))?$')
+PLACEMENT_RE = re.compile(rf'^placement\s+(?P<target>{IDENT})\s+at\s+(?P<environment>cloud|edge|5g|onprem)\s*\{{$')
 INTENT_RE = re.compile(rf'^intent\s+(?P<name>{IDENT})\s*\{{$')
 SEQUENCE_RE = re.compile(rf'^sequence\s+(?P<name>{IDENT})\s*\{{$')
 TRANSACTION_RE = re.compile(rf'^secure\s+transaction\s+(?P<name>{IDENT})\s*\{{$')
@@ -119,6 +123,15 @@ def parse(source: str) -> Program:
             m = TOKEN_RE.match(line)
             if m:
                 program.statements.append(TokenDecl(sl.number, m['name'], m['agent'], m['cap'], int(m['ttl']))); i += 1; continue
+            m = CREDENTIAL_RE.match(line)
+            if m:
+                program.statements.append(CredentialDecl(sl.number, m['name'], m['agent'], m['cap'], int(m['ttl']), str(_literal(m['issuer'])))); i += 1; continue
+            m = ADAPTER_RE.match(line)
+            if m:
+                program.statements.append(_parse_adapter(lines, i, m['name'])); i = _block_end(lines, i); continue
+            m = TWIN_CONNECTOR_RE.match(line)
+            if m:
+                program.statements.append(_parse_twin_connector(lines, i, m['name'])); i = _block_end(lines, i); continue
             m = TWIN_RE.match(line)
             if m:
                 program.statements.append(_parse_twin(lines, i, m['name'])); i = _block_end(lines, i); continue
@@ -127,7 +140,10 @@ def parse(source: str) -> Program:
                 program.statements.append(TwinValidateStmt(sl.number, m['action'], m['twin'])); i += 1; continue
             m = EXECUTE_RE.match(line)
             if m:
-                program.statements.append(ExecuteStmt(sl.number, m['action'], m['token'])); i += 1; continue
+                program.statements.append(ExecuteStmt(sl.number, m['action'], m['token'], m['adapter'])); i += 1; continue
+            m = PLACEMENT_RE.match(line)
+            if m:
+                program.statements.append(_parse_placement(lines, i, m['target'], m['environment'])); i = _block_end(lines, i); continue
             m = INTENT_RE.match(line)
             if m:
                 program.statements.append(_parse_intent(lines, i, m['name'])); i = _block_end(lines, i); continue
@@ -241,14 +257,54 @@ def _parse_proposal(lines, start, name, risk) -> ProposalDecl:
     return ProposalDecl(lines[start].number, name, agent, risk, capability, effects, guards, evidence, min_trust, confidence)
 
 
+def _parse_adapter(lines, start, name) -> AdapterDecl:
+    effects: set[str] = set(); mode = "simulation"; trust_zone = "default"
+    for sl in lines[start + 1:_block_end(lines, start) - 1]:
+        line = sl.text.rstrip(';')
+        if line.startswith("effects "): effects.update(_list(line[len("effects "):]))
+        elif line.startswith("mode "):
+            mode = line.split(None, 1)[1].strip()
+            if mode not in {"simulation", "external"}: raise ParseError(f"line {sl.number}: adapter mode must be simulation or external")
+        elif line.startswith("trust_zone "): trust_zone = str(_literal(line.split(None, 1)[1].strip()))
+        else: raise ParseError(f"line {sl.number}: invalid adapter field: {sl.text}")
+    return AdapterDecl(lines[start].number, name, effects, mode, trust_zone)
+
+
+def _parse_twin_connector(lines, start, name) -> TwinConnectorDecl:
+    transport = "context"; endpoint = None; timeout_ms = 2000
+    for sl in lines[start + 1:_block_end(lines, start) - 1]:
+        line = sl.text.rstrip(';')
+        if line.startswith("transport "):
+            transport = line.split(None, 1)[1].strip()
+            if transport not in {"context", "https"}: raise ParseError(f"line {sl.number}: twin connector transport must be context or https")
+        elif line.startswith("endpoint "): endpoint = str(_literal(line.split(None, 1)[1].strip()))
+        elif line.startswith("timeout_ms "):
+            timeout_ms = int(line.split(None, 1)[1].strip())
+        else: raise ParseError(f"line {sl.number}: invalid twin connector field: {sl.text}")
+    return TwinConnectorDecl(lines[start].number, name, transport, endpoint, timeout_ms)
+
+
 def _parse_twin(lines, start, name) -> TwinDecl:
-    target = "production"; guards: list[str] = []
+    target = "production"; guards: list[str] = []; connector = None
     for sl in lines[start + 1:_block_end(lines, start) - 1]:
         line = sl.text.rstrip(';')
         if line.startswith("target "): target = line.split(None, 1)[1].strip()
+        elif line.startswith("connector "): connector = line.split(None, 1)[1].strip()
         elif line.startswith("require "): guards.append(line[len("require "):].strip())
         else: raise ParseError(f"line {sl.number}: invalid twin field: {sl.text}")
-    return TwinDecl(lines[start].number, name, target, guards)
+    return TwinDecl(lines[start].number, name, target, guards, connector)
+
+
+def _parse_placement(lines, start, target, environment) -> PlacementDecl:
+    region = None; data_residency = None; max_latency_ms = None; network = None
+    for sl in lines[start + 1:_block_end(lines, start) - 1]:
+        line = sl.text.rstrip(';')
+        if line.startswith("region "): region = str(_literal(line.split(None, 1)[1].strip()))
+        elif line.startswith("data_residency "): data_residency = str(_literal(line.split(None, 1)[1].strip()))
+        elif line.startswith("max_latency_ms "): max_latency_ms = int(line.split(None, 1)[1].strip())
+        elif line.startswith("network "): network = str(_literal(line.split(None, 1)[1].strip()))
+        else: raise ParseError(f"line {sl.number}: invalid placement field: {sl.text}")
+    return PlacementDecl(lines[start].number, target, environment, region, data_residency, max_latency_ms, network)
 
 
 def _parse_intent(lines, start, name) -> IntentDecl:

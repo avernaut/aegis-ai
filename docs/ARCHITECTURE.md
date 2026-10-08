@@ -1,4 +1,4 @@
-# AegisAI v0.3 Architecture
+# AegisAI v0.4 Architecture
 
 ```text
 AegisAI source
@@ -22,7 +22,7 @@ logical lexer -> parser -> AST
              +----------+-----------+
              |                      |
              v                      v
-         AIR 0.3 JSON          Python backend
+         AIR 0.4 JSON          Python backend
              |
              v
       bounded-authority runtime
@@ -50,7 +50,7 @@ policy engine     capability tokens    Twin validation
 
 **Reasoning authority is not execution authority.**
 
-v0.3 strengthens this into four separate boundaries:
+v0.4 preserves and extends these authority boundaries:
 
 ```text
 Agent -> Proposal -> Authorization -> Action -> Execution
@@ -58,9 +58,9 @@ Agent -> Proposal -> Authorization -> Action -> Execution
       evidence/trust    policy      capability   token + Twin
 ```
 
-A valid `action` still cannot execute without a matching signed capability token and successful Twin validation.
+A valid `action` still cannot execute without matching runtime authority and successful Twin validation; v0.4 can use either a legacy HMAC token or an Ed25519 capability credential, and can additionally bind placement and typed adapters.
 
-## AIR 0.3
+## AIR 0.4
 
 AIR preserves security semantics rather than erasing them. Important operations include:
 
@@ -156,3 +156,47 @@ Proposal-local `confidence` overrides the runtime-context value when explicitly 
 - WASM/eBPF-oriented AIR lowering
 - 5G/6G slice, MEC and data-residency placement constraints
 - formal small-step operational semantics and non-interference proofs
+
+---
+
+# v0.4 Architecture Extension: Production Trust Fabric
+
+AIR 0.4 adds four trust/deployment operations:
+
+```text
+capability.credential
+    -> Ed25519 authority issuance and verification
+
+deployment.placement
+    -> Cloud/Edge/5G/on-prem placement constraints
+
+twin.connector
+    -> explicit source of Digital Twin observations
+
+effect.adapter
+    -> typed boundary from verified action to external side effect
+```
+
+The runtime path is deliberately split across trust domains:
+
+```text
+Compiler trust domain
+    parser -> checker -> AIR 0.4
+
+Authority trust domain
+    policy -> capability credential -> issuer trust
+
+Deployment trust domain
+    placement telemetry -> placement constraints
+
+Validation trust domain
+    Twin connector -> simulation/observations -> Twin guards
+
+Effect trust domain
+    typed adapter declaration -> host-bound adapter implementation
+
+Audit trust domain
+    provenance hash chain -> Ed25519 root anchor
+```
+
+External adapter implementations and remote Twin services are dependencies outside the compiler's intrinsic trust boundary. AIR records the requested effect, adapter, connector, placement and authority metadata so hosts can impose independent controls.
