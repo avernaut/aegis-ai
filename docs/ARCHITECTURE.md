@@ -1,4 +1,4 @@
-# Compiler Architecture
+# AegisAI v0.2 Compiler Architecture
 
 ```text
 AegisAI source
@@ -7,49 +7,74 @@ AegisAI source
 logical lexer
     |
     v
-parser -> AST
-    |
-    v
-static checker
-  - security-flow checking
-  - effect checking
-  - risk guards
-  - symbol validation
-    |
-    +--------------------+
-    |                    |
-    v                    v
-Aegis IR (AIR)       Python backend
+parser -----------------------------> AST
+                                       |
+                                       v
+                              static semantic checker
+                              - information flow
+                              - taint boundaries
+                              - risk guards
+                              - effect declarations
+                              - model/agent links
+                              - capability checks
+                              - evidence/trust checks
+                              - authorization gates
+                              - action consistency
+                              - transaction rollback
+                                       |
+                       +---------------+----------------+
+                       |                                |
+                       v                                v
+                 AIR v0.2 JSON                   Python backend
+                       |
+                       v
+        future policy/runtime enforcement layer
 ```
 
-## Design principle
+## Core design invariant
 
-The compiler separates **reasoning power** from **execution authority**. Future backends will preserve this distinction through capability tokens and policy-mediated execution.
+**Reasoning authority is not execution authority.**
 
-## Roadmap
+The compiler models this explicitly:
 
-### v0.2
-- typed expressions
-- assignments and control flow
-- policy evaluator
-- taint tracking
-- trust-annotated values
-- source/sink information-flow graph
+```text
+Model -> Agent -> Proposal -> Authorization -> Action
+                    ^              ^             |
+                    |              |             v
+              Evidence/Trust     Policy       Effects
+```
 
-### v0.3
-- `model` and `agent` declarations
-- capability system
-- proposals and authorization gates
-- evidence/provenance graph
+An AI agent can produce a proposal only inside its capability envelope. The proposal carries risk, evidence, guards, declared effects and a minimum trust level. An action is valid only after explicit authorization.
 
-### v0.4
-- digital-twin validation primitives
-- reversible actions
-- secure transactions
-- eBPF/WASM-oriented AIR lowering
+## AIR v0.2
 
-### v1.0 research target
-- formal small-step semantics
-- proof-oriented policy checks
-- capability-safe AI tool execution
-- distributed Cloud/Edge/5G deployment constraints
+AIR is a JSON-based intermediate representation carrying security metadata rather than erasing it during compilation. Important operations include:
+
+- `capability.declare`
+- `ai.model`
+- `ai.agent`
+- `evidence.declare`
+- `ai.proposal`
+- `auth.authorize`
+- `action.declare`
+- `taint.declare`
+- `taint.sanitize`
+- `twin.declare`
+- `intent.declare`
+- `sequence.declare`
+- `transaction.secure`
+
+Future backends can therefore consume the same checked security semantics for WASM, eBPF, Kubernetes admission, policy engines or Edge runtimes.
+
+## v0.3 research targets
+
+- typed expressions and structured boolean conditions
+- executable policy engine with deny-overrides semantics
+- provenance DAG and cryptographic audit records
+- capability tokens for runtime tool invocation
+- digital-twin adapter interface and simulation result types
+- explicit `execute` statement with runtime authorization token
+- reversible-action compensation functions
+- WASM-oriented AIR lowering
+- deployment/placement constraints for Cloud/Edge/5G/6G
+- formal small-step operational semantics

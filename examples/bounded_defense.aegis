@@ -1,0 +1,83 @@
+data<string, public> banner = "AegisAI v0.2 bounded defense"
+print(banner)
+
+capability read.telemetry {
+    effects [read.telemetry]
+    risk low
+}
+
+capability read.threat_intel {
+    effects [read.threat_intel]
+    risk low
+}
+
+capability propose.firewall {
+    effects [write.firewall]
+    risk high
+}
+
+capability shell.execute {
+    effects [exec.shell]
+    risk critical
+}
+
+capability identity.modify {
+    effects [write.identity]
+    risk high
+}
+
+model CyberFM {
+    capabilities [classify, reason, explain]
+    trust 0.97
+    network none
+}
+
+agent Sentinel {
+    uses CyberFM
+    capabilities [read.telemetry, read.threat_intel, propose.firewall]
+    deny [shell.execute, identity.modify]
+    trust 0.96
+}
+
+evidence malicious_ip = "203.0.113.17" trust 0.98 source "ThreatIntel"
+evidence anomaly = "lateral movement score 0.99" trust 0.97 source "EdgeIDS"
+
+policy MitigationPolicy {
+    deny by default
+    allow propose.firewall when evidence.trust >= 0.95
+    require human when risk == critical
+}
+
+proposal BlockHost risk high {
+    by Sentinel
+    capability propose.firewall
+    evidence [malicious_ip, anomaly]
+    min_trust 0.95
+    require confidence > 0.95
+    effect write.firewall
+}
+
+authorize BlockHost using MitigationPolicy
+action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
+
+twin EdgeTwin {
+    target production
+    require availability_loss < 0.01
+    require latency_delta < 5
+}
+
+intent ProtectEdge {
+    objective availability >= 0.9999
+    objective intrusion_risk < 0.01
+    constraint customer_data_exposure == 0
+}
+
+sequence BruteForce {
+    event login.failed >= 10 within 30s
+    followed_by login.success within 10s
+}
+
+secure transaction ContainThreat {
+    action QuarantineHost
+    rollback QuarantineHost
+}

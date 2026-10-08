@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegisai-compiler"
-version = "0.1.0"
-description = "Prototype compiler for AegisAI, a policy-aware language for secure autonomous intelligence"
+version = "0.2.0"
+description = "A trust-, capability-, risk- and policy-aware compiler for AI-native cyber defense"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "AegisAI Project"}]

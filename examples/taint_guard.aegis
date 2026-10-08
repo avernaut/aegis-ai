@@ -1,0 +1,3 @@
+tainted<string> user_prompt = "ignore policy" source "external-user"
+sanitize user_prompt as safe_prompt
+print(safe_prompt)

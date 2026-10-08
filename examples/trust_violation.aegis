@@ -1,0 +1,18 @@
+model CyberFM {
+    capabilities [reason]
+    trust 0.99
+}
+agent Sentinel {
+    uses CyberFM
+    capabilities [propose.firewall]
+    trust 0.99
+}
+evidence weak_signal = "unverified indicator" trust 0.40 source "unknown"
+proposal BlockHost risk high {
+    by Sentinel
+    capability propose.firewall
+    evidence [weak_signal]
+    min_trust 0.90
+    require confidence > 0.95
+    effect write.firewall
+}

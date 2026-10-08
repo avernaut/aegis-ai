@@ -1,0 +1,19 @@
+model CyberFM {
+    capabilities [reason]
+    trust 0.99
+}
+agent Sentinel {
+    uses CyberFM
+    capabilities [read.telemetry]
+    deny [propose.firewall]
+    trust 0.99
+}
+evidence ioc = "203.0.113.7" trust 0.99 source "ThreatIntel"
+proposal BlockHost risk high {
+    by Sentinel
+    capability propose.firewall
+    evidence [ioc]
+    min_trust 0.90
+    require confidence > 0.95
+    effect write.firewall
+}
