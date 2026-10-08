@@ -1,37 +1,69 @@
-# AegisAI v0.2 Security Model
+# AegisAI v0.3 Security Model
 
-AegisAI v0.2 implements a prototype of **bounded intelligence**: AI components may reason and recommend, but authority to cause side effects is separately represented and checked.
+AegisAI implements a research prototype of **bounded intelligence**: AI components may reason and recommend, but operational authority is represented separately and checked at multiple boundaries.
 
 ## Security invariants
 
 1. **No implicit declassification.** `confidential` and `secret` values cannot reach a public output sink.
-2. **Untrusted input remains tainted.** A tainted value cannot reach a public sink before an explicit `sanitize` boundary.
-3. **Deny wins at the capability boundary.** An agent cannot both allow and deny a capability, and denied capabilities cannot be used by proposals.
-4. **High-impact AI proposals need evidence.** `high` and `critical` proposals require guards and explicit evidence.
-5. **Trust is checked before authorization can become useful.** Agent and evidence trust must meet the proposal's declared minimum.
-6. **Proposal is not action.** An action derived from a proposal requires an explicit authorization statement referencing a declared policy.
-7. **Effects cannot expand silently.** Action effects must already appear in the proposal.
-8. **Rollback must be declared possible.** Secure transactions can only rollback actions marked `reversible`.
+2. **Untrusted input remains tainted.** A tainted value cannot reach a public sink before an explicit sanitization boundary.
+3. **Deny wins at the capability boundary.** Denied capabilities cannot be used by proposals or tokens.
+4. **High-impact proposals need evidence and guards.** `high` and `critical` proposals require both.
+5. **Trust is bounded before authority.** Agent and evidence trust must satisfy the proposal minimum.
+6. **Proposal is not action.** Actions must derive from structurally authorized proposals.
+7. **Action is not execution.** `execute` is a separate statement and requires runtime checks.
+8. **Effects cannot expand silently.** Action effects must be permitted by both proposal and capability.
+9. **Runtime authority expires.** Capability tokens have a bounded TTL and are authenticated.
+10. **Observed safety matters.** Execution requires successful Digital Twin validation against runtime metrics.
+11. **Critical authority can require a human.** Policy rules can require an explicit approval record.
+12. **Execution is auditable.** Runtime decisions are linked in a SHA-256 provenance hash chain.
+13. **Default adapters are safe.** The built-in adapter simulates rather than modifies external systems.
 
-## Current trust model
+## Policy model
 
-Trust values are developer-supplied scores in `[0,1]`; the compiler checks consistency but does not attest their truth. A production design should bind trust to provenance, signatures, source reputation and runtime observations.
+v0.3 evaluates a restricted policy language. Authorization is default deny. A matching deny rule immediately rejects the proposal. Human-approval requirements are evaluated after the condition becomes true and cannot be satisfied implicitly.
 
-## Current policy model
+## Capability-token model
 
-Policies are named rule collections and are checked for existence at authorization boundaries. v0.2 does not yet interpret policy expressions. Therefore `authorize X using P` demonstrates the separation of authority, but is not yet a full policy-decision point.
+Tokens are HMAC-SHA256 authenticated using a runtime key external to AegisAI source. The runtime checks signature, expiry, agent and capability before execution.
 
-## Current sanitization model
+HMAC protects tokens only as strongly as the secrecy and entropy of the runtime key. Production deployments should use managed secrets and may prefer asymmetric credentials or hardware-backed keys.
 
-`sanitize source as target` is a trusted language boundary. It does not yet invoke a validator. This is deliberately explicit so future releases can replace it with typed sanitizers without changing the information-flow model.
+## Provenance model
 
-## Non-goals of v0.2
+The SHA-256 ledger is tamper-evident within the recorded chain. It does not, by itself, prevent a privileged party from replacing the entire ledger with a newly generated one. Stronger deployments should externally anchor ledger roots or sign checkpoints with independently protected keys.
 
-- production-grade sandboxing
-- cryptographic provenance
-- real firewall/network execution
-- policy decision evaluation
-- prompt-injection detection
-- formal verification proofs
+## Digital Twin model
 
-The compiler is a research prototype intended to make these concerns first-class and testable before introducing real enforcement adapters.
+Twin constraints are evaluated against supplied runtime metrics. v0.3 does not establish the authenticity of those metrics. A production system should obtain them from an authenticated Digital Twin or telemetry service with freshness and provenance guarantees.
+
+## Sanitization model
+
+`sanitize source as target` is an explicit trusted boundary. The prototype does not prove the sanitizer correct.
+
+## Threats addressed by the prototype
+
+- accidental secret/public-flow violations
+- direct use of tainted values at public sinks
+- undeclared side effects
+- capability escalation inside checked AegisAI source
+- action creation without authorization structure
+- execution without a matching capability token
+- execution without prior Digital Twin validation
+- token tampering and expiration
+- runtime policy violations
+- audit-record modification after creation
+
+## Important non-goals
+
+v0.3 does not yet provide:
+
+- production-grade sandbox isolation
+- real firewall/IAM/cloud side-effect connectors
+- authenticated Digital Twin transport
+- hardware-backed key storage
+- remote attestation
+- prompt-injection detection or LLM-content safety guarantees
+- formal non-interference proof
+- Byzantine-resistant distributed audit storage
+
+AegisAI v0.3 is a research compiler/runtime and should not be treated as a production security boundary without additional hardening.

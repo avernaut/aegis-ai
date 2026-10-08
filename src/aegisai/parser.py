@@ -21,8 +21,11 @@ MODEL_RE = re.compile(rf'^model\s+(?P<name>{IDENT})\s*\{{$')
 AGENT_RE = re.compile(rf'^agent\s+(?P<name>{IDENT})\s*\{{$')
 PROPOSAL_RE = re.compile(rf'^proposal\s+(?P<name>{IDENT})\s+risk\s+(?P<risk>low|medium|high|critical)\s*\{{$')
 AUTHORIZE_RE = re.compile(rf'^authorize\s+(?P<proposal>{IDENT})\s+using\s+(?P<policy>{IDENT})$')
+TOKEN_RE = re.compile(rf'^token\s+(?P<name>{IDENT})\s+for\s+(?P<agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?$')
 ACTION_RE = re.compile(rf'^action\s+(?P<name>{IDENT})\s+from\s+(?P<proposal>{IDENT})\s+effect\s+(?P<effect>{CAP})\s+capability\s+(?P<cap>{CAP})(?P<rev>\s+reversible)?$')
 TWIN_RE = re.compile(rf'^twin\s+(?P<name>{IDENT})\s*\{{$')
+VALIDATE_RE = re.compile(rf'^validate\s+(?P<action>{IDENT})\s+with\s+(?P<twin>{IDENT})$')
+EXECUTE_RE = re.compile(rf'^execute\s+(?P<action>{IDENT})\s+using\s+(?P<token>{IDENT})$')
 INTENT_RE = re.compile(rf'^intent\s+(?P<name>{IDENT})\s*\{{$')
 SEQUENCE_RE = re.compile(rf'^sequence\s+(?P<name>{IDENT})\s*\{{$')
 TRANSACTION_RE = re.compile(rf'^secure\s+transaction\s+(?P<name>{IDENT})\s*\{{$')
@@ -113,9 +116,18 @@ def parse(source: str) -> Program:
             m = ACTION_RE.match(line)
             if m:
                 program.statements.append(ActionDecl(sl.number, m['name'], m['proposal'], m['cap'], m['effect'], bool(m['rev']))); i += 1; continue
+            m = TOKEN_RE.match(line)
+            if m:
+                program.statements.append(TokenDecl(sl.number, m['name'], m['agent'], m['cap'], int(m['ttl']))); i += 1; continue
             m = TWIN_RE.match(line)
             if m:
                 program.statements.append(_parse_twin(lines, i, m['name'])); i = _block_end(lines, i); continue
+            m = VALIDATE_RE.match(line)
+            if m:
+                program.statements.append(TwinValidateStmt(sl.number, m['action'], m['twin'])); i += 1; continue
+            m = EXECUTE_RE.match(line)
+            if m:
+                program.statements.append(ExecuteStmt(sl.number, m['action'], m['token'])); i += 1; continue
             m = INTENT_RE.match(line)
             if m:
                 program.statements.append(_parse_intent(lines, i, m['name'])); i = _block_end(lines, i); continue
@@ -215,7 +227,7 @@ def _parse_agent(lines, start, name) -> AgentDecl:
 
 
 def _parse_proposal(lines, start, name, risk) -> ProposalDecl:
-    agent = ""; capability = ""; effects: set[str] = set(); guards: list[str] = []; evidence: list[str] = []; min_trust = 0.0
+    agent = ""; capability = ""; effects: set[str] = set(); guards: list[str] = []; evidence: list[str] = []; min_trust = 0.0; confidence = None
     for sl in lines[start + 1:_block_end(lines, start) - 1]:
         line = sl.text.rstrip(';')
         if line.startswith("by "): agent = line.split(None, 1)[1].strip()
@@ -224,8 +236,9 @@ def _parse_proposal(lines, start, name, risk) -> ProposalDecl:
         elif line.startswith("require "): guards.append(line[len("require "):].strip())
         elif line.startswith("evidence "): evidence.extend(_list(line[len("evidence "):]))
         elif line.startswith("min_trust "): min_trust = _bounded_trust(line.split(None, 1)[1], sl.number)
+        elif line.startswith("confidence "): confidence = _bounded_trust(line.split(None, 1)[1], sl.number)
         else: raise ParseError(f"line {sl.number}: invalid proposal field: {sl.text}")
-    return ProposalDecl(lines[start].number, name, agent, risk, capability, effects, guards, evidence, min_trust)
+    return ProposalDecl(lines[start].number, name, agent, risk, capability, effects, guards, evidence, min_trust, confidence)
 
 
 def _parse_twin(lines, start, name) -> TwinDecl:

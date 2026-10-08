@@ -3,7 +3,7 @@ from .ast import *
 
 
 def lower(program: Program) -> dict:
-    ops=[]
+    ops = []
     for s in program.statements:
         if isinstance(s, DataDecl):
             ops.append({"op":"data.declare","name":s.name,"type":s.base_type,"security":s.security,"value":s.value,"line":s.line})
@@ -28,13 +28,19 @@ def lower(program: Program) -> dict:
         elif isinstance(s, AgentDecl):
             ops.append({"op":"ai.agent","name":s.name,"model":s.model,"capabilities":sorted(s.capabilities),"deny":sorted(s.denied),"trust":s.trust,"line":s.line})
         elif isinstance(s, ProposalDecl):
-            ops.append({"op":"ai.proposal","name":s.name,"agent":s.agent,"risk":s.risk,"capability":s.capability,"effects":sorted(s.effects),"guards":s.guards,"evidence":s.evidence,"min_trust":s.min_trust,"line":s.line})
+            ops.append({"op":"ai.proposal","name":s.name,"agent":s.agent,"risk":s.risk,"capability":s.capability,"effects":sorted(s.effects),"guards":s.guards,"evidence":s.evidence,"min_trust":s.min_trust,"confidence":s.confidence,"line":s.line})
         elif isinstance(s, AuthorizeStmt):
             ops.append({"op":"auth.authorize","proposal":s.proposal,"policy":s.policy,"line":s.line})
         elif isinstance(s, ActionDecl):
             ops.append({"op":"action.declare","name":s.name,"proposal":s.proposal,"capability":s.capability,"effect":s.effect,"reversible":s.reversible,"line":s.line})
+        elif isinstance(s, TokenDecl):
+            ops.append({"op":"capability.token","name":s.name,"agent":s.agent,"capability":s.capability,"ttl_seconds":s.ttl_seconds,"line":s.line})
         elif isinstance(s, TwinDecl):
             ops.append({"op":"twin.declare","name":s.name,"target":s.target,"guards":s.guards,"line":s.line})
+        elif isinstance(s, TwinValidateStmt):
+            ops.append({"op":"twin.validate","action":s.action,"twin":s.twin,"line":s.line})
+        elif isinstance(s, ExecuteStmt):
+            ops.append({"op":"action.execute","action":s.action,"token":s.token,"line":s.line})
         elif isinstance(s, IntentDecl):
             ops.append({"op":"intent.declare","name":s.name,"objectives":s.objectives,"constraints":s.constraints,"line":s.line})
         elif isinstance(s, SequenceDecl):
@@ -45,4 +51,4 @@ def lower(program: Program) -> dict:
             ops.append({"op":"fn.declare","name":s.name,"params":s.params,"risk":s.risk,"effects":sorted(s.effects),"body":lower(Program(s.line,s.body))["ops"],"line":s.line})
         elif isinstance(s, CallStmt):
             ops.append({"op":"fn.call","name":s.function,"args":s.args,"line":s.line})
-    return {"air_version":"0.2","language":"AegisAI","ops":ops}
+    return {"air_version":"0.3","language":"AegisAI","ops":ops}

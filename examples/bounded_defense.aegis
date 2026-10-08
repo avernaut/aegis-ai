@@ -1,4 +1,4 @@
-data<string, public> banner = "AegisAI v0.2 bounded defense"
+data<string, public> banner = "AegisAI v0.3 bounded-authority defense"
 print(banner)
 
 capability read.telemetry {
@@ -53,6 +53,7 @@ proposal BlockHost risk high {
     capability propose.firewall
     evidence [malicious_ip, anomaly]
     min_trust 0.95
+    confidence 0.99
     require confidence > 0.95
     effect write.firewall
 }
@@ -60,11 +61,15 @@ proposal BlockHost risk high {
 authorize BlockHost using MitigationPolicy
 action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
 
+token FirewallToken for Sentinel capability propose.firewall ttl 300
+
 twin EdgeTwin {
     target production
     require availability_loss < 0.01
     require latency_delta < 5
 }
+
+validate QuarantineHost with EdgeTwin
 
 intent ProtectEdge {
     objective availability >= 0.9999
@@ -81,3 +86,5 @@ secure transaction ContainThreat {
     action QuarantineHost
     rollback QuarantineHost
 }
+
+execute QuarantineHost using FirewallToken

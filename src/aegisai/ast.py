@@ -96,6 +96,7 @@ class ProposalDecl(Node):
     guards: list[str]
     evidence: list[str]
     min_trust: float
+    confidence: float | None = None
 
 @dataclass
 class AuthorizeStmt(Node):
@@ -111,10 +112,27 @@ class ActionDecl(Node):
     reversible: bool
 
 @dataclass
+class TokenDecl(Node):
+    name: str
+    agent: str
+    capability: str
+    ttl_seconds: int
+
+@dataclass
 class TwinDecl(Node):
     name: str
     target: str
     guards: list[str]
+
+@dataclass
+class TwinValidateStmt(Node):
+    action: str
+    twin: str
+
+@dataclass
+class ExecuteStmt(Node):
+    action: str
+    token: str
 
 @dataclass
 class IntentDecl(Node):

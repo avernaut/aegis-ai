@@ -1,0 +1,9 @@
+{
+  "twins": {
+    "EdgeTwin": {
+      "availability_loss": 0.05,
+      "latency_delta": 7.5
+    }
+  },
+  "approvals": {}
+}

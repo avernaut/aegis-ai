@@ -1,0 +1,37 @@
+capability identity.modify {
+    effects [write.identity]
+    risk critical
+}
+model CyberFM {
+    capabilities [reason]
+    trust 1.0
+}
+agent Sentinel {
+    uses CyberFM
+    capabilities [identity.modify]
+    trust 1.0
+}
+evidence account_takeover = "confirmed" trust 1.0 source "IAM"
+policy CriticalPolicy {
+    deny by default
+    allow identity.modify when evidence.trust >= 0.99
+    require human when risk == critical
+}
+proposal DisableAccount risk critical {
+    by Sentinel
+    capability identity.modify
+    evidence [account_takeover]
+    min_trust 0.99
+    confidence 1.0
+    require confidence >= 0.99
+    effect write.identity
+}
+authorize DisableAccount using CriticalPolicy
+action DisableIdentity from DisableAccount effect write.identity capability identity.modify reversible
+token IdentityToken for Sentinel capability identity.modify ttl 60
+twin IdentityTwin {
+    target production
+    require affected_users <= 1
+}
+validate DisableIdentity with IdentityTwin
+execute DisableIdentity using IdentityToken

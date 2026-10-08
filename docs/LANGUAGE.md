@@ -1,6 +1,6 @@
-# AegisAI Language Draft v0.2
+# AegisAI Language Draft v0.3
 
-AegisAI is an experimental language for **bounded autonomous intelligence**. v0.2 makes security levels, taint, AI models, autonomous agents, trust, evidence, capabilities, proposals, authorization, actions, intents, digital twins and secure transactions explicit language concepts.
+AegisAI v0.3 is an experimental language for **bounded autonomous intelligence**. It separates AI reasoning from operational authority and now carries this separation from static checking into runtime enforcement.
 
 ## Security-qualified data
 
@@ -17,22 +17,17 @@ Security levels form the lattice:
 public < confidential < secret
 ```
 
-Non-public values cannot flow to `print`, which is modeled as a public sink.
+Non-public values cannot flow to `print`, modeled as a public sink.
 
 ## Tainted values
 
 ```aegis
 tainted<string> user_prompt = "external content" source "user"
-```
-
-A tainted value cannot flow directly to a public sink. v0.2 introduces an explicit sanitization boundary:
-
-```aegis
 sanitize user_prompt as safe_prompt
 print(safe_prompt)
 ```
 
-The current prototype treats `sanitize` as a trusted boundary. Future versions will bind sanitizers to typed validation functions.
+`sanitize` is an explicit trusted boundary. v0.3 does not claim that the sanitization algorithm itself is formally verified.
 
 ## Evidence and trust
 
@@ -40,11 +35,9 @@ The current prototype treats `sanitize` as a trusted boundary. Future versions w
 evidence ioc = "203.0.113.17" trust 0.98 source "ThreatIntel"
 ```
 
-Trust is a floating-point value in `[0.0, 1.0]` and is preserved in AIR.
+Trust is in `[0.0, 1.0]`. The compiler checks trust thresholds and the runtime hashes evidence values into provenance records instead of copying raw evidence values into the audit chain.
 
 ## Capabilities
-
-Operational authority can be declared explicitly:
 
 ```aegis
 capability propose.firewall {
@@ -53,9 +46,9 @@ capability propose.firewall {
 }
 ```
 
-When capability declarations are present, agent grants must reference declared capabilities. Proposal effects cannot exceed the capability effect set, and proposal risk cannot understate the capability minimum risk.
+A capability bounds both permissible effects and minimum declared risk.
 
-## Models
+## Models and agents
 
 ```aegis
 model CyberFM {
@@ -63,33 +56,41 @@ model CyberFM {
     trust 0.97
     network none
 }
-```
 
-`network none` expresses intended network isolation as metadata in v0.2.
-
-## Agents and capabilities
-
-```aegis
 agent Sentinel {
     uses CyberFM
-    capabilities [read.telemetry, read.threat_intel, propose.firewall]
-    deny [shell.execute, identity.modify]
+    capabilities [propose.firewall]
+    deny [shell.execute]
     trust 0.96
 }
 ```
 
-A capability simultaneously present in `capabilities` and `deny` is rejected. A proposal cannot use an absent or denied capability.
+Agent capabilities are operational authority. Model capabilities describe AI functions and are not themselves runtime authority tokens.
 
 ## Policies
 
+v0.3 evaluates a deliberately small, auditable policy language:
+
 ```aegis
-policy ZeroTrust {
+policy MitigationPolicy {
     deny by default
-    allow network.access when identity.verified
+    allow propose.firewall when evidence.trust >= 0.95
+    deny propose.firewall when confidence < 0.90
+    require human when risk == critical
 }
 ```
 
-v0.2 validates policy references during authorization and preserves policy rules in AIR. Rule evaluation itself remains a planned runtime/compiler feature.
+Supported forms are:
+
+```text
+deny by default
+allow all
+allow <capability> when <expression>
+deny <capability> when <expression>
+require human when <expression>
+```
+
+Deny rules override allows. Runtime authorization is security-first default deny.
 
 ## Proposals
 
@@ -99,14 +100,13 @@ proposal BlockHost risk high {
     capability propose.firewall
     evidence [ioc]
     min_trust 0.95
+    confidence 0.99
     require confidence > 0.95
     effect write.firewall
 }
 ```
 
-A high/critical-risk proposal requires both an explicit guard and evidence. Every evidence item and the proposing agent must satisfy `min_trust`.
-
-A proposal is **not executable**. It represents an AI recommendation awaiting authority.
+A proposal is non-executable. High/critical proposals require evidence and at least one guard. Evidence and agent trust must satisfy `min_trust` statically; guards are evaluated again at runtime.
 
 ## Authorization and actions
 
@@ -115,7 +115,62 @@ authorize BlockHost using MitigationPolicy
 action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
 ```
 
-An action must derive from an authorized proposal. Its capability must match the proposal capability, and its effect must have been declared by that proposal.
+`authorize` identifies the policy decision point. In v0.3 the named policy is actually evaluated at runtime.
+
+## Capability tokens
+
+```aegis
+token FirewallToken for Sentinel capability propose.firewall ttl 300
+```
+
+The runtime issues an HMAC-SHA256 signed token containing agent, capability, issue/expiry times and a random nonce. TTL is restricted to 1..86400 seconds. Tokens are checked again immediately before execution.
+
+## Digital Twin validation
+
+```aegis
+twin EdgeTwin {
+    target production
+    require availability_loss < 0.01
+    require latency_delta < 5
+}
+
+validate QuarantineHost with EdgeTwin
+```
+
+Twin constraints are evaluated against runtime metrics supplied in the runtime context. An action cannot be executed unless a successful validation appears earlier in the program.
+
+## Explicit execution
+
+```aegis
+execute QuarantineHost using FirewallToken
+```
+
+Execution requires all of the following:
+
+1. static compilation succeeds;
+2. the proposal passes its runtime guards;
+3. the authorization policy allows it;
+4. the capability token is valid, unexpired and matches agent/capability;
+5. Digital Twin validation has passed;
+6. an effect adapter accepts the action.
+
+The default adapter is simulation-only.
+
+## Human approval
+
+```aegis
+policy CriticalPolicy {
+    deny by default
+    allow identity.modify when evidence.trust >= 0.99
+    require human when risk == critical
+}
+```
+
+Approvals are supplied in runtime context:
+
+```json
+{"approvals": {"DisableAccount": true}}
+```
 
 ## Functions, risk and effects
 
@@ -127,77 +182,63 @@ fn isolate(host) risk critical {
 }
 ```
 
-Every effect used by a function must be explicitly declared. High- and critical-risk functions require at least one guard.
+Every effect used by a function must be declared; high and critical functions require a guard.
 
-## Digital twin declarations
+## Intent, sequences and secure transactions
 
-```aegis
-twin EdgeTwin {
-    target production
-    require availability_loss < 0.01
-    require latency_delta < 5
-}
-```
-
-v0.2 preserves twin validation constraints in AIR. A later runtime will evaluate them against a concrete twin adapter.
-
-## Intent-oriented declarations
+These remain first-class checked metadata:
 
 ```aegis
 intent ProtectEdge {
     objective availability >= 0.9999
-    objective intrusion_risk < 0.01
     constraint customer_data_exposure == 0
 }
-```
 
-Intents describe objectives and hard constraints rather than a procedural implementation.
-
-## Temporal sequences
-
-```aegis
 sequence BruteForce {
     event login.failed >= 10 within 30s
     followed_by login.success within 10s
 }
-```
 
-v0.2 captures sequence semantics as ordered AIR metadata. Temporal execution is planned for a dedicated runtime.
-
-## Secure transactions
-
-```aegis
 secure transaction ContainThreat {
     action QuarantineHost
     rollback QuarantineHost
 }
 ```
 
-A rollback target must exist and be declared `reversible`.
-
-## Calls
-
-```aegis
-call investigate("flow-42")
-```
+Rollback targets must be marked `reversible`.
 
 ## Compilation targets
 
-- `python`: prototype executable/metadata backend.
-- `air`: Aegis Intermediate Representation v0.2 in JSON.
+- `python`: Python prototype backend embedding AIR 0.3 and the runtime boundary.
+- `air`: Aegis Intermediate Representation 0.3 in JSON.
 
-## Static checks in v0.2
+## Runtime command
 
-- secret/confidential -> public sink rejection
-- tainted -> public sink rejection
-- explicit sanitization boundary
-- function effect declaration
-- risk guards
+```bash
+aegis run program.aegis --context context.json --key-file /path/to/key --audit audit.json
+```
+
+## Static checks in v0.3
+
+- security-level information flow
+- taint flow and explicit sanitization
+- effect declaration and capability effect envelope
+- risk guards and capability minimum risk
 - model/agent references
-- capability allow/deny consistency
-- proposal capability ownership
-- evidence existence
-- agent/evidence trust threshold enforcement
-- authorization reference validation
-- action/proposal capability/effect matching
+- capability grant/deny consistency
+- evidence existence and trust thresholds
+- policy syntax/reference validation
+- proposal/action capability and effect matching
+- capability-token agent/capability/TTL checks
+- mandatory prior Twin validation before `execute`
 - secure-transaction rollback reversibility
+
+## Runtime checks in v0.3
+
+- proposal guard evaluation
+- policy evaluation with deny override
+- human approval requirements
+- HMAC capability-token verification and expiry
+- Digital Twin guard evaluation
+- action/token/proposal binding
+- tamper-evident provenance hash-chain generation

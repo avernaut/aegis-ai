@@ -1,0 +1,10 @@
+{
+  "approvals": {
+    "DisableAccount": true
+  },
+  "twins": {
+    "IdentityTwin": {
+      "affected_users": 1
+    }
+  }
+}
