@@ -1,0 +1,16 @@
+data<string, public> banner = "AegisAI secure compiler"
+print(banner)
+
+policy ZeroTrust {
+    deny by default
+    allow network.access when identity.verified
+}
+
+fn investigate(flow) risk low {
+    effects [read.network, read.threatintel]
+    effect read.network
+    effect read.threatintel
+    print(flow)
+}
+
+call investigate("flow-42")

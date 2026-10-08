@@ -1,0 +1,5 @@
+fn isolate(host) risk critical {
+    effects [write.firewall]
+    require confidence > 0.95
+    effect write.firewall
+}
