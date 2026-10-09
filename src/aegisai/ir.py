@@ -39,6 +39,16 @@ def lower(program: Program) -> dict:
             ops.append({"op":"capability.token","name":s.name,"agent":s.agent,"capability":s.capability,"ttl_seconds":s.ttl_seconds,"line":s.line})
         elif isinstance(s, CredentialDecl):
             ops.append({"op":"capability.credential","name":s.name,"agent":s.agent,"capability":s.capability,"ttl_seconds":s.ttl_seconds,"issuer":s.issuer,"line":s.line})
+        elif isinstance(s, DelegationDecl):
+            ops.append({"op":"capability.delegate","name":s.name,"from_agent":s.from_agent,"to_agent":s.to_agent,"capability":s.capability,"ttl_seconds":s.ttl_seconds,"issuer":s.issuer,"line":s.line})
+        elif isinstance(s, QuorumDecl):
+            ops.append({"op":"coordination.quorum","name":s.name,"proposal":s.proposal,"members":s.members,"threshold":s.threshold,"line":s.line})
+        elif isinstance(s, FederationDecl):
+            ops.append({"op":"policy.federation","name":s.name,"policies":s.policies,"strategy":s.strategy,"threshold":s.threshold,"line":s.line})
+        elif isinstance(s, FederatedAuthorizeStmt):
+            ops.append({"op":"auth.federated","proposal":s.proposal,"federation":s.federation,"line":s.line})
+        elif isinstance(s, AttestationDecl):
+            ops.append({"op":"runtime.attestation","name":s.name,"target":s.target,"issuer":s.issuer,"max_age_seconds":s.max_age_seconds,"measurement":s.measurement,"line":s.line})
         elif isinstance(s, AdapterDecl):
             ops.append({"op":"effect.adapter","name":s.name,"effects":sorted(s.effects),"mode":s.mode,"trust_zone":s.trust_zone,"line":s.line})
         elif isinstance(s, TwinConnectorDecl):
@@ -48,7 +58,7 @@ def lower(program: Program) -> dict:
         elif isinstance(s, TwinValidateStmt):
             ops.append({"op":"twin.validate","action":s.action,"twin":s.twin,"line":s.line})
         elif isinstance(s, ExecuteStmt):
-            ops.append({"op":"action.execute","action":s.action,"token":s.token,"adapter":s.adapter,"line":s.line})
+            ops.append({"op":"action.execute","action":s.action,"token":s.token,"adapter":s.adapter,"quorum":s.quorum,"attestation":s.attestation,"line":s.line})
         elif isinstance(s, IntentDecl):
             ops.append({"op":"intent.declare","name":s.name,"objectives":s.objectives,"constraints":s.constraints,"line":s.line})
         elif isinstance(s, SequenceDecl):
@@ -59,4 +69,4 @@ def lower(program: Program) -> dict:
             ops.append({"op":"fn.declare","name":s.name,"params":s.params,"risk":s.risk,"effects":sorted(s.effects),"body":lower(Program(s.line,s.body))["ops"],"line":s.line})
         elif isinstance(s, CallStmt):
             ops.append({"op":"fn.call","name":s.function,"args":s.args,"line":s.line})
-    return {"air_version":"0.4","language":"AegisAI","ops":ops}
+    return {"air_version":"0.5","language":"AegisAI","ops":ops}

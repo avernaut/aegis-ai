@@ -44,7 +44,7 @@ def run_source(
     allow_remote_twin: bool = False,
     now: int | None = None,
 ) -> RunResult:
-    """Compile to AIR 0.4 and execute the bounded-authority runtime pipeline."""
+    """Compile to AIR 0.5 and execute the bounded-authority runtime pipeline."""
     program = parse(source)
     diagnostics = check(program)
     if diagnostics:

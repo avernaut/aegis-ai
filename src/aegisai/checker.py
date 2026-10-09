@@ -43,6 +43,10 @@ def check(program: Program) -> list[Diagnostic]:
     actions: dict[str, ActionDecl] = {}
     tokens: dict[str, TokenDecl] = {}
     credentials: dict[str, CredentialDecl] = {}
+    delegations: dict[str, DelegationDecl] = {}
+    quorums: dict[str, QuorumDecl] = {}
+    federations: dict[str, FederationDecl] = {}
+    attestations: dict[str, AttestationDecl] = {}
     adapters: dict[str, AdapterDecl] = {}
     twin_connectors: dict[str, TwinConnectorDecl] = {}
     twins: dict[str, TwinDecl] = {}
@@ -50,7 +54,7 @@ def check(program: Program) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     positions = {id(s): i for i, s in enumerate(program.statements)}
-    auth_stmts = [s for s in program.statements if isinstance(s, AuthorizeStmt)]
+    auth_stmts = [s for s in program.statements if isinstance(s, (AuthorizeStmt, FederatedAuthorizeStmt))]
     validate_stmts = [s for s in program.statements if isinstance(s, TwinValidateStmt)]
     authorized = {s.proposal for s in auth_stmts}
 
@@ -85,6 +89,14 @@ def check(program: Program) -> list[Diagnostic]:
             duplicate(stmt.name, stmt.line, tokens); tokens[stmt.name] = stmt
         elif isinstance(stmt, CredentialDecl):
             duplicate(stmt.name, stmt.line, credentials); credentials[stmt.name] = stmt
+        elif isinstance(stmt, DelegationDecl):
+            duplicate(stmt.name, stmt.line, delegations); delegations[stmt.name] = stmt
+        elif isinstance(stmt, QuorumDecl):
+            duplicate(stmt.name, stmt.line, quorums); quorums[stmt.name] = stmt
+        elif isinstance(stmt, FederationDecl):
+            duplicate(stmt.name, stmt.line, federations); federations[stmt.name] = stmt
+        elif isinstance(stmt, AttestationDecl):
+            duplicate(stmt.name, stmt.line, attestations); attestations[stmt.name] = stmt
         elif isinstance(stmt, AdapterDecl):
             duplicate(stmt.name, stmt.line, adapters); adapters[stmt.name] = stmt
         elif isinstance(stmt, TwinConnectorDecl):
@@ -258,6 +270,65 @@ def check(program: Program) -> list[Diagnostic]:
             if not stmt.issuer:
                 diagnostics.append(Diagnostic(stmt.line, "CREDENTIAL", f"credential '{stmt.name}' must declare an issuer"))
 
+        elif isinstance(stmt, DelegationDecl):
+            source = agents.get(stmt.from_agent)
+            target = agents.get(stmt.to_agent)
+            if source is None:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' references unknown source agent '{stmt.from_agent}'"))
+            if target is None:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' references unknown target agent '{stmt.to_agent}'"))
+            if stmt.capability not in capabilities:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' references undeclared capability '{stmt.capability}'"))
+            if source:
+                check_authority(source, stmt.capability, stmt.name, stmt.line, "DELEGATION")
+            if target and stmt.capability in target.denied:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' grants capability '{stmt.capability}' explicitly denied to target agent '{target.name}'"))
+            if stmt.ttl_seconds <= 0 or stmt.ttl_seconds > 3600:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' ttl must be between 1 and 3600 seconds"))
+            if not stmt.issuer:
+                diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.name}' must declare an issuer"))
+
+        elif isinstance(stmt, QuorumDecl):
+            if stmt.proposal not in proposals:
+                diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{stmt.name}' references unknown proposal '{stmt.proposal}'"))
+            if not stmt.members:
+                diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{stmt.name}' must contain at least one member"))
+            for member in stmt.members:
+                if member not in agents:
+                    diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{stmt.name}' references unknown agent '{member}'"))
+            if len(set(stmt.members)) != len(stmt.members):
+                diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{stmt.name}' contains duplicate members"))
+            if stmt.threshold <= 0 or stmt.threshold > len(stmt.members):
+                diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{stmt.name}' threshold must be between 1 and member count"))
+
+        elif isinstance(stmt, FederationDecl):
+            if not stmt.policies:
+                diagnostics.append(Diagnostic(stmt.line, "FEDERATION", f"federation '{stmt.name}' must include at least one policy"))
+            for policy in stmt.policies:
+                if policy not in policies:
+                    diagnostics.append(Diagnostic(stmt.line, "FEDERATION", f"federation '{stmt.name}' references unknown policy '{policy}'"))
+            if stmt.strategy == "threshold":
+                if stmt.threshold is None or stmt.threshold <= 0 or stmt.threshold > len(stmt.policies):
+                    diagnostics.append(Diagnostic(stmt.line, "FEDERATION", f"federation '{stmt.name}' threshold must be between 1 and policy count"))
+            elif stmt.threshold is not None:
+                diagnostics.append(Diagnostic(stmt.line, "FEDERATION", f"federation '{stmt.name}' may set threshold only with strategy threshold"))
+
+        elif isinstance(stmt, FederatedAuthorizeStmt):
+            if stmt.proposal not in proposals:
+                diagnostics.append(Diagnostic(stmt.line, "AUTH", f"cannot authorize unknown proposal '{stmt.proposal}'"))
+            if stmt.federation not in federations:
+                diagnostics.append(Diagnostic(stmt.line, "FEDERATION", f"authorization references unknown federation '{stmt.federation}'"))
+
+        elif isinstance(stmt, AttestationDecl):
+            if stmt.target not in agents:
+                diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"attestation '{stmt.name}' references unknown target agent '{stmt.target}'"))
+            if not stmt.issuer:
+                diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"attestation '{stmt.name}' must declare an issuer"))
+            if stmt.max_age_seconds <= 0 or stmt.max_age_seconds > 86400:
+                diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"attestation '{stmt.name}' max_age must be between 1 and 86400 seconds"))
+            if not stmt.measurement:
+                diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"attestation '{stmt.name}' must declare a measurement"))
+
         elif isinstance(stmt, TwinValidateStmt):
             if stmt.action not in actions:
                 diagnostics.append(Diagnostic(stmt.line, "TWIN", f"validation references unknown action '{stmt.action}'"))
@@ -268,11 +339,12 @@ def check(program: Program) -> list[Diagnostic]:
             action = actions.get(stmt.action)
             token = tokens.get(stmt.token)
             credential = credentials.get(stmt.token)
-            authority = token or credential
+            delegation = delegations.get(stmt.token)
+            authority = token or credential or delegation
             if action is None:
                 diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"cannot execute unknown action '{stmt.action}'"))
             if authority is None:
-                diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"execution references unknown token or credential '{stmt.token}'"))
+                diagnostics.append(Diagnostic(stmt.line, "EXECUTE", f"execution references unknown token, credential, or delegation '{stmt.token}'"))
             prior_validation = any(v.action == stmt.action and positions[id(v)] < positions[id(stmt)] for v in validate_stmts)
             if not prior_validation:
                 diagnostics.append(Diagnostic(stmt.line, "TWIN", f"action '{stmt.action}' must pass an explicit twin validation before execution"))
@@ -282,12 +354,33 @@ def check(program: Program) -> list[Diagnostic]:
                     diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"execution references unknown adapter '{stmt.adapter}'"))
                 elif action and action.effect not in adapter.effects:
                     diagnostics.append(Diagnostic(stmt.line, "ADAPTER", f"adapter '{adapter.name}' does not handle action effect '{action.effect}'"))
+            if stmt.quorum:
+                quorum = quorums.get(stmt.quorum)
+                if quorum is None:
+                    diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"execution references unknown quorum '{stmt.quorum}'"))
+                elif action:
+                    proposal = proposals.get(action.proposal)
+                    if proposal and quorum.proposal != proposal.name:
+                        diagnostics.append(Diagnostic(stmt.line, "QUORUM", f"quorum '{quorum.name}' protects proposal '{quorum.proposal}', not '{proposal.name}'"))
+            if stmt.attestation:
+                att = attestations.get(stmt.attestation)
+                if att is None:
+                    diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"execution references unknown attestation '{stmt.attestation}'"))
+                elif action:
+                    proposal = proposals.get(action.proposal)
+                    if proposal and att.target not in {proposal.agent, getattr(authority, 'to_agent', None)}:
+                        diagnostics.append(Diagnostic(stmt.line, "ATTESTATION", f"attestation '{att.name}' target '{att.target}' is not an execution participant"))
+
             if action and authority:
                 proposal = proposals.get(action.proposal)
                 if authority.capability != action.capability:
                     diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' capability '{authority.capability}' does not match action capability '{action.capability}'"))
-                if proposal and authority.agent != proposal.agent:
-                    diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' belongs to agent '{authority.agent}', not proposal agent '{proposal.agent}'"))
+                if proposal:
+                    if isinstance(authority, DelegationDecl):
+                        if authority.from_agent != proposal.agent:
+                            diagnostics.append(Diagnostic(stmt.line, "DELEGATION", f"delegation '{stmt.token}' originates from '{authority.from_agent}', not proposal agent '{proposal.agent}'"))
+                    elif authority.agent != proposal.agent:
+                        diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' belongs to agent '{authority.agent}', not proposal agent '{proposal.agent}'"))
                 if positions[id(authority)] > positions[id(stmt)]:
                     diagnostics.append(Diagnostic(stmt.line, "TOKEN", f"token or credential '{stmt.token}' must be declared before execution"))
                 if positions[id(action)] > positions[id(stmt)]:

@@ -20,6 +20,7 @@ from .credentials import (
     private_key_to_pem,
     public_key_id,
     public_key_to_pem,
+    issue_runtime_attestation,
 )
 
 
@@ -52,21 +53,34 @@ def _mapping(values: list[str] | None, *, private: bool) -> dict:
     return out
 
 
+def _text_mapping(values: list[str] | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in values or []:
+        if "=" not in item:
+            raise AegisRuntimeError("text mapping must use NAME=PATH")
+        name, path = item.split("=", 1)
+        out[name] = Path(path).read_text(encoding="utf-8").strip()
+    return out
+
+
 def _run_command(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="aegis run", description="Execute the AegisAI bounded-authority runtime")
     p.add_argument("source", type=Path)
     p.add_argument("--context", type=Path, help="JSON runtime context (confidence, approvals, twin metrics, placement telemetry)")
     p.add_argument("--key-file", type=Path, help="legacy HMAC runtime key for v0.3 token declarations")
-    p.add_argument("--credential-key", action="append", metavar="ISSUER=PATH", help="Ed25519 private key used to issue v0.4 capability credentials; repeatable")
+    p.add_argument("--credential-key", action="append", metavar="ISSUER=PATH", help="Ed25519 private key used to issue v0.4+ capability credentials; repeatable")
     p.add_argument("--trust-key", action="append", metavar="ISSUER=PATH", help="trusted Ed25519 public key; repeatable")
     p.add_argument("--anchor-key", type=Path, help="Ed25519 private key used to sign the final provenance root")
     p.add_argument("--anchor-issuer", default="AegisAI-Audit", help="issuer name for the provenance anchor")
     p.add_argument("--allow-remote-twin", action="store_true", help="allow declared HTTPS Digital Twin connectors to make network requests")
+    p.add_argument("--attestation", action="append", metavar="NAME=PATH", help="signed runtime attestation token to inject into the execution context; repeatable")
     p.add_argument("--audit", type=Path, help="write hash-chained provenance ledger and optional signature anchor as JSON")
     args = p.parse_args(argv)
     try:
         source = args.source.read_text(encoding="utf-8")
         context = json.loads(args.context.read_text(encoding="utf-8")) if args.context else {}
+        if args.attestation:
+            context.setdefault("attestations", {}).update(_text_mapping(args.attestation))
         private_keys = _mapping(args.credential_key, private=True)
         signers = {issuer: SigningIdentity(issuer, key) for issuer, key in private_keys.items()}
         trusted = _mapping(args.trust_key, private=False)
@@ -85,7 +99,7 @@ def _run_command(argv: list[str]) -> int:
         payload = result.to_dict()
         if args.audit:
             args.audit.write_text(json.dumps({
-                "air_version": "0.4",
+                "air_version": "0.5",
                 "entries": result.provenance,
                 "anchor": result.provenance_anchor,
                 "valid": payload["provenance_valid"],
@@ -140,6 +154,29 @@ def _keygen(argv: list[str]) -> int:
         return 1
 
 
+def _attest(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="aegis attest", description="Issue a signed Ed25519 runtime attestation for AegisAI v0.5")
+    p.add_argument("--name", required=True)
+    p.add_argument("--target", required=True)
+    p.add_argument("--measurement", required=True)
+    p.add_argument("--issuer", required=True)
+    p.add_argument("--private-key", type=Path, required=True)
+    p.add_argument("--output", type=Path)
+    args = p.parse_args(argv)
+    try:
+        signer = SigningIdentity(args.issuer, load_private_key_pem(args.private_key.read_bytes()))
+        token = issue_runtime_attestation(args.name, args.target, args.measurement, signer)
+        if args.output:
+            args.output.write_text(token + "\n", encoding="utf-8")
+            print(str(args.output))
+        else:
+            print(token)
+        return 0
+    except (OSError, CredentialError) as exc:
+        print(f"attest: {exc}")
+        return 1
+
+
 def _compile_command(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="aegis", description="AegisAI compiler")
     p.add_argument("--version", action="version", version=f"AegisAI {__version__}")
@@ -178,6 +215,8 @@ def main() -> int:
         return _verify_audit(argv[1:])
     if argv and argv[0] == "keygen":
         return _keygen(argv[1:])
+    if argv and argv[0] == "attest":
+        return _attest(argv[1:])
     return _compile_command(argv)
 
 

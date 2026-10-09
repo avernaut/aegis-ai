@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegisai-compiler"
-version = "0.4.0"
+version = "0.5.0"
 description = "A bounded-authority programming language, compiler and secure runtime for AI-native cyber defense"
 readme = "README.md"
 requires-python = ">=3.10"

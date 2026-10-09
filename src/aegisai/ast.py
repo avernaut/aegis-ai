@@ -127,6 +127,42 @@ class CredentialDecl(Node):
     issuer: str
 
 @dataclass
+class DelegationDecl(Node):
+    name: str
+    from_agent: str
+    to_agent: str
+    capability: str
+    ttl_seconds: int
+    issuer: str
+
+@dataclass
+class QuorumDecl(Node):
+    name: str
+    proposal: str
+    members: list[str]
+    threshold: int
+
+@dataclass
+class FederationDecl(Node):
+    name: str
+    policies: list[str]
+    strategy: str
+    threshold: int | None = None
+
+@dataclass
+class FederatedAuthorizeStmt(Node):
+    proposal: str
+    federation: str
+
+@dataclass
+class AttestationDecl(Node):
+    name: str
+    target: str
+    issuer: str
+    max_age_seconds: int
+    measurement: str
+
+@dataclass
 class AdapterDecl(Node):
     name: str
     effects: set[str]
@@ -157,6 +193,8 @@ class ExecuteStmt(Node):
     action: str
     token: str
     adapter: str | None = None
+    quorum: str | None = None
+    attestation: str | None = None
 
 @dataclass
 class PlacementDecl(Node):

@@ -308,3 +308,47 @@ placement Sentinel at 5g {
 ```
 
 Supported environments are `cloud`, `edge`, `5g`, and `onprem`. v0.4 validates placement declarations statically and compares them with observed runtime placement telemetry.
+
+---
+
+# v0.5 Federated Coordination
+
+## Capability delegation
+
+```aegis
+delegate D from Sentinel to Responder capability propose.firewall ttl 120 issuer "SOC-CA"
+```
+
+The compiler rejects delegation when the source agent does not own the capability, the target explicitly denies it, or TTL exceeds 3600 seconds.
+
+## Quorum
+
+```aegis
+quorum Gate for BlockHost approvals 2 from [Sentinel, Responder, Analyst]
+```
+
+## Policy federation
+
+```aegis
+federation Fed {
+    policies [EvidencePolicy, ConfidencePolicy]
+    strategy threshold
+    threshold 2
+}
+
+federate authorize BlockHost using Fed
+```
+
+## Runtime attestation
+
+```aegis
+attestation EdgeRuntime for Responder issuer "Attest-CA" max_age 300 measurement "sha256:runtime-v1"
+```
+
+## Coordinated execution
+
+```aegis
+execute QuarantineHost using ResponseDelegation via EdgeFirewallAdapter quorum Gate attestation EdgeRuntime
+```
+
+AIR compilation targets now emit version 0.5.

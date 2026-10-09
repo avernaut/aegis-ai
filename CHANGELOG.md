@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+- Added bounded multi-agent capability delegation with Ed25519-signed delegated credentials.
+- Added compile-time delegation checks preventing source capability escalation and target deny-list violations.
+- Added `quorum` declarations with membership and threshold validation.
+- Added runtime quorum approval enforcement before action execution.
+- Added `federation` declarations supporting `all`, `any`, and `threshold` policy-composition strategies.
+- Added `federate authorize ... using ...` and federated authorization provenance.
+- Added signed Ed25519 runtime attestations with target, measurement, issuer, freshness, and key-ID verification.
+- Added `aegis attest` and `aegis run --attestation NAME=PATH`.
+- Added runtime authority revocation by authority name, issuer, key ID, or SHA-256 digest.
+- Extended `execute` with optional quorum and attestation gates.
+- Upgraded AIR from 0.4 to 0.5.
+- Added coordinated multi-agent defense example and runtime context.
+- Expanded regression suite to 45 tests while retaining v0.1-v0.4 behavior.
+
 ## 0.4.0
 
 - Added Ed25519 capability credentials with issuer/key-ID/TTL/agent/capability binding.

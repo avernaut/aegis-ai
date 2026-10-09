@@ -93,6 +93,7 @@ def issue_capability_credential(
     signer: SigningIdentity,
     *,
     now: int | None = None,
+    delegated_from: str | None = None,
 ) -> str:
     now = int(time.time()) if now is None else int(now)
     payload = {
@@ -107,6 +108,9 @@ def issue_capability_credential(
         "exp": now + int(ttl_seconds),
         "nonce": _b64e(os.urandom(12)),
     }
+    if delegated_from is not None:
+        payload["v"] = 3
+        payload["delegated_from"] = delegated_from
     body = _b64e(_canonical(payload))
     signature = _b64e(signer.private_key.sign(body.encode("ascii")))
     return f"aegiscred.{body}.{signature}"
@@ -119,6 +123,7 @@ def verify_capability_credential(
     now: int | None = None,
     agent: str | None = None,
     capability: str | None = None,
+    delegated_from: str | None = None,
 ) -> dict[str, Any]:
     try:
         prefix, body, signature = credential.split(".", 2)
@@ -146,6 +151,8 @@ def verify_capability_credential(
         raise CredentialError(f"capability credential agent mismatch: expected '{agent}'")
     if capability is not None and payload.get("capability") != capability:
         raise CredentialError(f"capability credential mismatch: expected '{capability}'")
+    if delegated_from is not None and payload.get("delegated_from") != delegated_from:
+        raise CredentialError(f"capability credential delegation mismatch: expected '{delegated_from}'")
     return payload
 
 
@@ -174,3 +181,47 @@ def verify_provenance_anchor(anchor: dict[str, Any], trusted_issuers: dict[str, 
         return True
     except (KeyError, ValueError, InvalidSignature, TypeError):
         return False
+
+
+def issue_runtime_attestation(name: str, target: str, measurement: str, signer: SigningIdentity, *, now: int | None = None) -> str:
+    now = int(time.time()) if now is None else int(now)
+    payload = {
+        "v": 1, "alg": "Ed25519", "name": name, "target": target,
+        "measurement": measurement, "issuer": signer.issuer, "key_id": signer.key_id,
+        "timestamp": now, "nonce": _b64e(os.urandom(12)),
+    }
+    body = _b64e(_canonical(payload))
+    signature = _b64e(signer.private_key.sign(body.encode("ascii")))
+    return f"aegisatt.{body}.{signature}"
+
+
+def verify_runtime_attestation(token: str, trusted_issuers: dict[str, Ed25519PublicKey], *, now: int | None = None, target: str | None = None, measurement: str | None = None, max_age_seconds: int | None = None) -> dict[str, Any]:
+    try:
+        prefix, body, signature = token.split(".", 2)
+        if prefix != "aegisatt":
+            raise CredentialError("invalid runtime attestation prefix")
+        payload = json.loads(_b64d(body))
+        issuer = payload.get("issuer")
+        key = trusted_issuers.get(issuer)
+        if key is None:
+            raise CredentialError(f"untrusted runtime attestation issuer '{issuer}'")
+        if payload.get("key_id") != public_key_id(key):
+            raise CredentialError("runtime attestation key id does not match trusted issuer key")
+        key.verify(_b64d(signature), body.encode("ascii"))
+    except CredentialError:
+        raise
+    except InvalidSignature as exc:
+        raise CredentialError("runtime attestation signature verification failed") from exc
+    except Exception as exc:
+        raise CredentialError("invalid runtime attestation") from exc
+    now = int(time.time()) if now is None else int(now)
+    age = now - int(payload.get("timestamp", 0))
+    if age < 0:
+        raise CredentialError("runtime attestation timestamp is in the future")
+    if max_age_seconds is not None and age > int(max_age_seconds):
+        raise CredentialError("runtime attestation is stale")
+    if target is not None and payload.get("target") != target:
+        raise CredentialError(f"runtime attestation target mismatch: expected '{target}'")
+    if measurement is not None and payload.get("measurement") != measurement:
+        raise CredentialError("runtime attestation measurement mismatch")
+    return payload

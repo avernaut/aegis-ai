@@ -1,0 +1,20 @@
+{
+  "placements": {
+    "Responder": {
+      "environment": "edge",
+      "region": "EU",
+      "data_residency": "EU",
+      "latency_ms": 4.0,
+      "network": "mec"
+    }
+  },
+  "twins": {
+    "EdgeTwin": {
+      "availability_loss": 0.002
+    }
+  },
+  "quorums": {
+    "ResponseQuorum": ["Sentinel", "Responder"]
+  },
+  "approvals": {}
+}

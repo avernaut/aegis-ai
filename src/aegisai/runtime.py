@@ -20,6 +20,7 @@ from .credentials import (
     sign_provenance_anchor,
     verify_capability_credential,
     verify_provenance_anchor,
+    verify_runtime_attestation,
 )
 
 
@@ -165,6 +166,9 @@ class RunResult:
     authorizations: list[dict[str, Any]] = field(default_factory=list)
     placements: list[dict[str, Any]] = field(default_factory=list)
     validations: list[dict[str, Any]] = field(default_factory=list)
+    quorums: list[dict[str, Any]] = field(default_factory=list)
+    attestations: list[dict[str, Any]] = field(default_factory=list)
+    revocations: list[dict[str, Any]] = field(default_factory=list)
     executions: list[dict[str, Any]] = field(default_factory=list)
     provenance: list[dict[str, Any]] = field(default_factory=list)
     provenance_anchor: dict[str, Any] | None = None
@@ -175,6 +179,9 @@ class RunResult:
             "authorizations": self.authorizations,
             "placements": self.placements,
             "validations": self.validations,
+            "quorums": self.quorums,
+            "attestations": self.attestations,
+            "revocations": self.revocations,
             "executions": self.executions,
             "provenance": self.provenance,
             "provenance_valid": ProvenanceLedger(self.provenance).verify(),
@@ -311,6 +318,54 @@ def _validate_placement(spec: dict[str, Any], context: dict[str, Any]) -> dict[s
     return {"target": spec["target"], "passed": not failures, "failures": failures, "actual": actual}
 
 
+def _evaluate_federation(federation: dict[str, Any], policies: dict[str, dict[str, Any]], proposal: dict[str, Any], ctx: dict[str, Any], human_approved: bool) -> tuple[bool, list[dict[str, Any]]]:
+    decisions: list[dict[str, Any]] = []
+    for name in federation.get("policies", []):
+        allowed, reasons = _evaluate_policy(policies[name], proposal, ctx, human_approved)
+        decisions.append({"policy": name, "allowed": allowed, "reasons": reasons})
+    approvals = sum(1 for d in decisions if d["allowed"])
+    strategy = federation.get("strategy", "all")
+    if strategy == "all":
+        allowed = approvals == len(decisions) and bool(decisions)
+    elif strategy == "any":
+        allowed = approvals > 0
+    else:
+        allowed = approvals >= int(federation.get("threshold") or 0)
+    return allowed, decisions
+
+
+def _quorum_decision(spec: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+    raw = context.get("quorums", {}).get(spec["name"], [])
+    if isinstance(raw, dict):
+        approved = {name for name, value in raw.items() if value}
+    elif isinstance(raw, list):
+        approved = set(raw)
+    else:
+        approved = set()
+    members = set(spec.get("members", []))
+    valid = sorted(approved & members)
+    threshold = int(spec.get("threshold", 0))
+    return {"quorum": spec["name"], "proposal": spec["proposal"], "threshold": threshold, "approved": valid, "count": len(valid), "passed": len(valid) >= threshold}
+
+
+def _revocation_reason(name: str, payload: dict[str, Any], raw_authority: str, context: dict[str, Any]) -> str | None:
+    rev = context.get("revocations", {})
+    if not isinstance(rev, dict):
+        return None
+    if name in set(rev.get("authorities", [])):
+        return f"authority '{name}' is revoked"
+    issuer = payload.get("issuer")
+    if issuer and issuer in set(rev.get("issuers", [])):
+        return f"issuer '{issuer}' is revoked"
+    key_id = payload.get("key_id")
+    if key_id and key_id in set(rev.get("key_ids", [])):
+        return f"key id '{key_id}' is revoked"
+    digest = hashlib.sha256(raw_authority.encode("utf-8")).hexdigest()
+    if digest in set(rev.get("sha256", [])):
+        return "authority digest is revoked"
+    return None
+
+
 def verify_audit_document(doc: dict[str, Any], trusted_anchor_keys: dict[str, Ed25519PublicKey] | None = None, *, require_anchor: bool = False) -> tuple[bool, bool | None]:
     ledger = ProvenanceLedger(doc.get("entries", []))
     chain_valid = ledger.verify()
@@ -339,8 +394,8 @@ def run_air(
     allow_remote_twin: bool = False,
     now: int | None = None,
 ) -> RunResult:
-    if air.get("air_version") not in {"0.3", "0.4"}:
-        raise AegisRuntimeError(f"runtime requires AIR 0.3 or 0.4, got {air.get('air_version')!r}")
+    if air.get("air_version") not in {"0.3", "0.4", "0.5"}:
+        raise AegisRuntimeError(f"runtime requires AIR 0.3, 0.4, or 0.5, got {air.get('air_version')!r}")
     context = context or {}
     adapters = adapters or {}
     twin_connectors = twin_connectors or {}
@@ -360,6 +415,9 @@ def run_air(
         return {op["name"]: op for op in air["ops"] if op.get("op") == opname and "name" in op}
 
     policies = index("policy.declare")
+    federations = index("policy.federation")
+    quorums = index("coordination.quorum")
+    attestation_specs = index("runtime.attestation")
     evidence = index("evidence.declare")
     agents = index("ai.agent")
     proposals = index("ai.proposal")
@@ -367,7 +425,7 @@ def run_air(
     adapters_decl = index("effect.adapter")
     connector_decl = index("twin.connector")
     twins = index("twin.declare")
-    issued_authorities: dict[str, tuple[str, str]] = {}
+    issued_authorities: dict[str, dict[str, Any]] = {}
     authorized: set[str] = set()
     validated: set[str] = set()
 
@@ -406,10 +464,29 @@ def run_air(
                 raise AegisRuntimeError(f"policy '{policy['name']}' denied proposal '{proposal['name']}'")
             authorized.add(proposal["name"])
 
+        elif kind == "auth.federated":
+            proposal = proposals[op["proposal"]]
+            federation = federations[op["federation"]]
+            agent_obj = agents[proposal["agent"]]
+            pctx = _proposal_context(proposal, evidence, agent_obj, context)
+            for guard in proposal.get("guards", []):
+                if not bool(_eval_expr(guard, pctx)):
+                    ledger.append("authorization.denied", {"proposal": proposal["name"], "federation": federation["name"], "reason": f"guard-failed:{guard}"}, clock())
+                    raise AegisRuntimeError(f"proposal '{proposal['name']}' guard failed: {guard}")
+            approvals = context.get("approvals", {})
+            human_approved = bool(approvals.get(proposal["name"], context.get("human_approved", False)))
+            allowed, decisions = _evaluate_federation(federation, policies, proposal, pctx, human_approved)
+            decision = {"proposal": proposal["name"], "federation": federation["name"], "allowed": allowed, "policy_decisions": decisions}
+            result.authorizations.append(decision)
+            ledger.append("authorization.federated", decision, clock())
+            if not allowed:
+                raise AegisRuntimeError(f"policy federation '{federation['name']}' denied proposal '{proposal['name']}'")
+            authorized.add(proposal["name"])
+
         elif kind == "capability.token":
             key = _require_key(runtime_key)
             token = issue_capability_token(op["name"], op["agent"], op["capability"], int(op["ttl_seconds"]), key, clock())
-            issued_authorities[op["name"]] = ("hmac", token)
+            issued_authorities[op["name"]] = {"kind": "hmac", "value": token, "agent": op["agent"], "capability": op["capability"]}
             ledger.append("capability.token.issued", {
                 "name": op["name"], "agent": op["agent"], "capability": op["capability"],
                 "ttl_seconds": op["ttl_seconds"], "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
@@ -423,11 +500,22 @@ def run_air(
                 credential = issue_capability_credential(op["name"], op["agent"], op["capability"], int(op["ttl_seconds"]), signer, now=clock())
             except CredentialError as exc:
                 raise AegisRuntimeError(str(exc)) from exc
-            issued_authorities[op["name"]] = ("ed25519", credential)
+            issued_authorities[op["name"]] = {"kind": "ed25519", "value": credential, "agent": op["agent"], "capability": op["capability"]}
             ledger.append("capability.credential.issued", {
                 "name": op["name"], "agent": op["agent"], "capability": op["capability"], "issuer": op["issuer"],
                 "ttl_seconds": op["ttl_seconds"], "credential_sha256": hashlib.sha256(credential.encode()).hexdigest(),
             }, clock())
+
+        elif kind == "capability.delegate":
+            signer = credential_signers.get(op["issuer"])
+            if signer is None:
+                raise AegisRuntimeError(f"no Ed25519 signer configured for delegation issuer '{op['issuer']}'")
+            try:
+                credential = issue_capability_credential(op["name"], op["to_agent"], op["capability"], int(op["ttl_seconds"]), signer, now=clock(), delegated_from=op["from_agent"])
+            except CredentialError as exc:
+                raise AegisRuntimeError(str(exc)) from exc
+            issued_authorities[op["name"]] = {"kind": "delegated", "value": credential, "agent": op["to_agent"], "from_agent": op["from_agent"], "capability": op["capability"]}
+            ledger.append("capability.delegated", {"name": op["name"], "from_agent": op["from_agent"], "to_agent": op["to_agent"], "capability": op["capability"], "issuer": op["issuer"], "ttl_seconds": op["ttl_seconds"], "credential_sha256": hashlib.sha256(credential.encode()).hexdigest()}, clock())
 
         elif kind == "twin.validate":
             action_obj = actions[op["action"]]
@@ -468,14 +556,48 @@ def run_air(
             authority = issued_authorities.get(op["token"])
             if authority is None:
                 raise AegisRuntimeError(f"capability token or credential '{op['token']}' has not been issued")
-            auth_kind, auth_value = authority
+            auth_kind, auth_value = authority["kind"], authority["value"]
             try:
                 if auth_kind == "hmac":
                     payload = verify_capability_token(auth_value, _require_key(runtime_key), now=clock(), agent=proposal["agent"], capability=action_obj["capability"])
+                elif auth_kind == "delegated":
+                    payload = verify_capability_credential(auth_value, trusted, now=clock(), agent=authority["agent"], capability=action_obj["capability"], delegated_from=proposal["agent"])
                 else:
                     payload = verify_capability_credential(auth_value, trusted, now=clock(), agent=proposal["agent"], capability=action_obj["capability"])
             except CredentialError as exc:
                 raise AegisRuntimeError(str(exc)) from exc
+
+            reason = _revocation_reason(op["token"], payload, auth_value, context)
+            rev_record = {"authority": op["token"], "revoked": reason is not None, "reason": reason}
+            result.revocations.append(rev_record)
+            ledger.append("authority.revocation.check", rev_record, clock())
+            if reason:
+                raise AegisRuntimeError(reason)
+
+            quorum_name = op.get("quorum")
+            if quorum_name:
+                qspec = quorums[quorum_name]
+                qdecision = _quorum_decision(qspec, context)
+                result.quorums.append(qdecision)
+                ledger.append("coordination.quorum", qdecision, clock())
+                if not qdecision["passed"]:
+                    raise AegisRuntimeError(f"quorum '{quorum_name}' did not reach threshold {qdecision['threshold']}")
+
+            attestation_name = op.get("attestation")
+            if attestation_name:
+                spec = attestation_specs[attestation_name]
+                token = context.get("attestations", {}).get(attestation_name)
+                if not token:
+                    raise AegisRuntimeError(f"runtime attestation '{attestation_name}' is required")
+                try:
+                    att_payload = verify_runtime_attestation(token, trusted, now=clock(), target=spec["target"], measurement=spec["measurement"], max_age_seconds=int(spec["max_age_seconds"]))
+                except CredentialError as exc:
+                    raise AegisRuntimeError(str(exc)) from exc
+                if att_payload.get("issuer") != spec["issuer"]:
+                    raise AegisRuntimeError(f"runtime attestation '{attestation_name}' issuer mismatch")
+                att_record = {"attestation": attestation_name, "target": spec["target"], "issuer": spec["issuer"], "measurement": spec["measurement"], "verified": True}
+                result.attestations.append(att_record)
+                ledger.append("runtime.attestation.verified", att_record, clock())
 
             adapter_name = op.get("adapter")
             if adapter_name:

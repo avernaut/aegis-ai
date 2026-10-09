@@ -21,14 +21,19 @@ MODEL_RE = re.compile(rf'^model\s+(?P<name>{IDENT})\s*\{{$')
 AGENT_RE = re.compile(rf'^agent\s+(?P<name>{IDENT})\s*\{{$')
 PROPOSAL_RE = re.compile(rf'^proposal\s+(?P<name>{IDENT})\s+risk\s+(?P<risk>low|medium|high|critical)\s*\{{$')
 AUTHORIZE_RE = re.compile(rf'^authorize\s+(?P<proposal>{IDENT})\s+using\s+(?P<policy>{IDENT})$')
+FEDERATED_AUTHORIZE_RE = re.compile(rf'^federate\s+authorize\s+(?P<proposal>{IDENT})\s+using\s+(?P<federation>{IDENT})$')
 TOKEN_RE = re.compile(rf'^token\s+(?P<name>{IDENT})\s+for\s+(?P<agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?$')
 CREDENTIAL_RE = re.compile(rf'^credential\s+(?P<name>{IDENT})\s+for\s+(?P<agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?\s+issuer\s+(?P<issuer>.+)$')
+DELEGATION_RE = re.compile(rf'^delegate\s+(?P<name>{IDENT})\s+from\s+(?P<from_agent>{IDENT})\s+to\s+(?P<to_agent>{IDENT})\s+capability\s+(?P<cap>{CAP})\s+ttl\s+(?P<ttl>\d+)(?:s)?\s+issuer\s+(?P<issuer>.+)$')
+QUORUM_RE = re.compile(rf'^quorum\s+(?P<name>{IDENT})\s+for\s+(?P<proposal>{IDENT})\s+approvals\s+(?P<threshold>\d+)\s+from\s+(?P<members>\[.*\])$')
+FEDERATION_RE = re.compile(rf'^federation\s+(?P<name>{IDENT})\s*\{{$')
+ATTESTATION_RE = re.compile(rf'^attestation\s+(?P<name>{IDENT})\s+for\s+(?P<target>{IDENT})\s+issuer\s+(?P<issuer>.+?)\s+max_age\s+(?P<age>\d+)(?:s)?\s+measurement\s+(?P<measurement>.+)$')
 ADAPTER_RE = re.compile(rf'^adapter\s+(?P<name>{IDENT})\s*\{{$')
 TWIN_CONNECTOR_RE = re.compile(rf'^twin_connector\s+(?P<name>{IDENT})\s*\{{$')
 ACTION_RE = re.compile(rf'^action\s+(?P<name>{IDENT})\s+from\s+(?P<proposal>{IDENT})\s+effect\s+(?P<effect>{CAP})\s+capability\s+(?P<cap>{CAP})(?P<rev>\s+reversible)?$')
 TWIN_RE = re.compile(rf'^twin\s+(?P<name>{IDENT})\s*\{{$')
 VALIDATE_RE = re.compile(rf'^validate\s+(?P<action>{IDENT})\s+with\s+(?P<twin>{IDENT})$')
-EXECUTE_RE = re.compile(rf'^execute\s+(?P<action>{IDENT})\s+using\s+(?P<token>{IDENT})(?:\s+via\s+(?P<adapter>{IDENT}))?$')
+EXECUTE_RE = re.compile(rf'^execute\s+(?P<action>{IDENT})\s+using\s+(?P<token>{IDENT})(?:\s+via\s+(?P<adapter>{IDENT}))?(?:\s+quorum\s+(?P<quorum>{IDENT}))?(?:\s+attestation\s+(?P<attestation>{IDENT}))?$')
 PLACEMENT_RE = re.compile(rf'^placement\s+(?P<target>{IDENT})\s+at\s+(?P<environment>cloud|edge|5g|onprem)\s*\{{$')
 INTENT_RE = re.compile(rf'^intent\s+(?P<name>{IDENT})\s*\{{$')
 SEQUENCE_RE = re.compile(rf'^sequence\s+(?P<name>{IDENT})\s*\{{$')
@@ -117,6 +122,9 @@ def parse(source: str) -> Program:
             m = AUTHORIZE_RE.match(line)
             if m:
                 program.statements.append(AuthorizeStmt(sl.number, m['proposal'], m['policy'])); i += 1; continue
+            m = FEDERATED_AUTHORIZE_RE.match(line)
+            if m:
+                program.statements.append(FederatedAuthorizeStmt(sl.number, m['proposal'], m['federation'])); i += 1; continue
             m = ACTION_RE.match(line)
             if m:
                 program.statements.append(ActionDecl(sl.number, m['name'], m['proposal'], m['cap'], m['effect'], bool(m['rev']))); i += 1; continue
@@ -126,6 +134,18 @@ def parse(source: str) -> Program:
             m = CREDENTIAL_RE.match(line)
             if m:
                 program.statements.append(CredentialDecl(sl.number, m['name'], m['agent'], m['cap'], int(m['ttl']), str(_literal(m['issuer'])))); i += 1; continue
+            m = DELEGATION_RE.match(line)
+            if m:
+                program.statements.append(DelegationDecl(sl.number, m['name'], m['from_agent'], m['to_agent'], m['cap'], int(m['ttl']), str(_literal(m['issuer'])))); i += 1; continue
+            m = QUORUM_RE.match(line)
+            if m:
+                program.statements.append(QuorumDecl(sl.number, m['name'], m['proposal'], _list(m['members']), int(m['threshold']))); i += 1; continue
+            m = FEDERATION_RE.match(line)
+            if m:
+                program.statements.append(_parse_federation(lines, i, m['name'])); i = _block_end(lines, i); continue
+            m = ATTESTATION_RE.match(line)
+            if m:
+                program.statements.append(AttestationDecl(sl.number, m['name'], m['target'], str(_literal(m['issuer'])), int(m['age']), str(_literal(m['measurement'])))); i += 1; continue
             m = ADAPTER_RE.match(line)
             if m:
                 program.statements.append(_parse_adapter(lines, i, m['name'])); i = _block_end(lines, i); continue
@@ -140,7 +160,7 @@ def parse(source: str) -> Program:
                 program.statements.append(TwinValidateStmt(sl.number, m['action'], m['twin'])); i += 1; continue
             m = EXECUTE_RE.match(line)
             if m:
-                program.statements.append(ExecuteStmt(sl.number, m['action'], m['token'], m['adapter'])); i += 1; continue
+                program.statements.append(ExecuteStmt(sl.number, m['action'], m['token'], m['adapter'], m['quorum'], m['attestation'])); i += 1; continue
             m = PLACEMENT_RE.match(line)
             if m:
                 program.statements.append(_parse_placement(lines, i, m['target'], m['environment'])); i = _block_end(lines, i); continue
@@ -325,3 +345,20 @@ def _parse_transaction(lines, start, name) -> SecureTransactionDecl:
         elif line.startswith("rollback "): rollbacks.append(line.split(None, 1)[1].strip())
         else: raise ParseError(f"line {sl.number}: invalid secure transaction field: {sl.text}")
     return SecureTransactionDecl(lines[start].number, name, actions, rollbacks)
+
+
+def _parse_federation(lines, start, name) -> FederationDecl:
+    policies: list[str] = []; strategy = "all"; threshold = None
+    for sl in lines[start + 1:_block_end(lines, start) - 1]:
+        line = sl.text.rstrip(';')
+        if line.startswith("policies "):
+            policies.extend(_list(line[len("policies "):]))
+        elif line.startswith("strategy "):
+            strategy = line.split(None, 1)[1].strip()
+            if strategy not in {"all", "any", "threshold"}:
+                raise ParseError(f"line {sl.number}: federation strategy must be all, any, or threshold")
+        elif line.startswith("threshold "):
+            threshold = int(line.split(None, 1)[1].strip())
+        else:
+            raise ParseError(f"line {sl.number}: invalid federation field: {sl.text}")
+    return FederationDecl(lines[start].number, name, policies, strategy, threshold)

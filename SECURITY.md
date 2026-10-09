@@ -33,3 +33,11 @@ HTTPS Twin connectors are disabled unless explicitly enabled at runtime. In real
 ## Effect-adapter guidance
 
 `mode external` adapter implementations execute outside the compiler's trust boundary. They must independently enforce authentication, input validation, least privilege, idempotency/rollback where applicable, and auditable error handling. A declaration in AegisAI does not make an external integration safe by itself.
+
+## v0.5 security notes
+
+- Delegated credentials are intentionally short lived (maximum 3600 seconds).
+- Runtime attestation verifies signatures and freshness but does not implement a hardware TPM/TEE verifier; the measurement semantics are supplied by the deployment.
+- Revocation state is caller-supplied in v0.5. Production deployments need an authenticated, freshness-protected revocation distribution mechanism.
+- Quorum approvals are identities in the runtime context; production systems must bind those approvals to authenticated principals or signed approval artifacts.
+- Policy federation composes AegisAI policies; it does not replace external organizational governance or key-management controls.

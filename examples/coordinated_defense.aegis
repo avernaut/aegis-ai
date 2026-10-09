@@ -1,0 +1,86 @@
+data<string, public> banner = "AegisAI v0.5 coordinated defense"
+print(banner)
+
+capability propose.firewall {
+    effects [write.firewall]
+    risk high
+}
+
+model CyberFM {
+    capabilities [reason, explain]
+    trust 0.99
+    network none
+}
+
+agent Sentinel {
+    uses CyberFM
+    capabilities [propose.firewall]
+    trust 0.99
+}
+
+agent Responder {
+    uses CyberFM
+    capabilities []
+    trust 0.98
+}
+
+agent Analyst {
+    uses CyberFM
+    capabilities []
+    trust 0.97
+}
+
+placement Responder at edge {
+    region "EU"
+    data_residency "EU"
+    max_latency_ms 15
+    network "mec"
+}
+
+evidence ioc = "203.0.113.17" trust 0.99 source "ThreatIntel"
+
+policy EvidencePolicy {
+    deny by default
+    allow propose.firewall when evidence.trust >= 0.95
+}
+
+policy ConfidencePolicy {
+    deny by default
+    allow propose.firewall when confidence >= 0.98
+}
+
+federation DefenseFederation {
+    policies [EvidencePolicy, ConfidencePolicy]
+    strategy all
+}
+
+proposal BlockHost risk high {
+    by Sentinel
+    capability propose.firewall
+    evidence [ioc]
+    min_trust 0.95
+    confidence 0.99
+    require confidence > 0.95
+    effect write.firewall
+}
+
+federate authorize BlockHost using DefenseFederation
+action QuarantineHost from BlockHost effect write.firewall capability propose.firewall reversible
+
+delegate ResponseDelegation from Sentinel to Responder capability propose.firewall ttl 120 issuer "SOC-CA"
+quorum ResponseQuorum for BlockHost approvals 2 from [Sentinel, Responder, Analyst]
+attestation EdgeRuntime for Responder issuer "Attest-CA" max_age 300 measurement "sha256:runtime-v1"
+
+adapter EdgeFirewallAdapter {
+    effects [write.firewall]
+    mode simulation
+    trust_zone "edge-prod"
+}
+
+twin EdgeTwin {
+    target production
+    require availability_loss < 0.01
+}
+
+validate QuarantineHost with EdgeTwin
+execute QuarantineHost using ResponseDelegation via EdgeFirewallAdapter quorum ResponseQuorum attestation EdgeRuntime

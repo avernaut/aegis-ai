@@ -82,3 +82,15 @@ v0.4 adds the following invariants:
 6. **Anchored provenance** — the local SHA-256 audit chain can be bound to an externally verifiable Ed25519 signature over its final root.
 
 These mechanisms reduce, but do not eliminate, trust in the host environment. A compromised host, private-key store, external adapter or Twin service remains outside the guarantees of the language-level checks and therefore requires independent hardening.
+
+## v0.5 Multi-agent trust controls
+
+AegisAI v0.5 adds five independent gates that can be combined before execution:
+
+1. **Delegation containment** — a delegator cannot grant a capability it does not possess, and a delegatee deny rule remains authoritative.
+2. **Federated policy** — multiple policies can be composed using all/any/threshold strategies without bypassing proposal guards.
+3. **Quorum** — only approvals from statically declared members count toward the configured threshold.
+4. **Runtime attestation** — Ed25519 signatures bind issuer, target, measurement, and timestamp; stale or mismatched attestations fail closed.
+5. **Revocation** — authority name, issuer, key ID, or credential digest can be revoked at runtime before effects are released.
+
+These controls are cumulative. A successful policy decision does not substitute for quorum, attestation, revocation, Twin validation, placement validation, or adapter authorization when those controls are declared.

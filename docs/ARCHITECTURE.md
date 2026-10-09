@@ -200,3 +200,7 @@ Audit trust domain
 ```
 
 External adapter implementations and remote Twin services are dependencies outside the compiler's intrinsic trust boundary. AIR records the requested effect, adapter, connector, placement and authority metadata so hosts can impose independent controls.
+
+## v0.5 Federated authority plane
+
+AIR 0.5 introduces a coordination layer between authorization and effect execution. It contains policy-federation, delegation, quorum, attestation, and revocation checks. The execution plane remains isolated behind the typed effect-adapter boundary, so coordination metadata cannot directly trigger external side effects.

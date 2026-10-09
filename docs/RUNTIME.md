@@ -129,3 +129,22 @@ result = run_source(
 ```
 
 All external adapters and connectors remain host-controlled dependencies rather than implicit language privileges.
+
+## v0.5 coordination context
+
+Quorum approvals are supplied under `quorums`. Signed attestation tokens are supplied under `attestations`. Revocation state is supplied under `revocations`.
+
+```json
+{
+  "quorums": {"ResponseQuorum": ["Sentinel", "Responder"]},
+  "attestations": {"EdgeRuntime": "aegisatt...."},
+  "revocations": {
+    "authorities": [],
+    "issuers": [],
+    "key_ids": [],
+    "sha256": []
+  }
+}
+```
+
+The runtime checks revocation after credential verification and before quorum/attestation/adapter execution. Every decision is appended to the provenance chain.
