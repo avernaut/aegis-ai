@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avernaut.com/schemas/aegisai/action-authorization-envelope.schema.json",
+  "title": "AegisAI Action Authorization Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["envelope_id", "agent_id", "issued_at", "expires_at", "action", "authority", "risk", "approval", "policy", "attestation", "verification", "recovery", "provenance"],
+  "properties": {
+    "envelope_id": {"type": "string", "minLength": 8},
+    "agent_id": {"type": "string", "minLength": 1},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "target", "parameters"],
+      "properties": {
+        "type": {"type": "string"},
+        "target": {"type": "string"},
+        "parameters": {"type": "object"}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "delegation_depth", "revocable"],
+      "properties": {
+        "scope": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "delegated_by": {"type": ["string", "null"]},
+        "delegation_depth": {"type": "integer", "minimum": 0},
+        "revocable": {"type": "boolean"}
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level"],
+      "properties": {"level": {"enum": ["low", "medium", "high", "critical"]}}
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "quorum_required", "approvals"],
+      "properties": {
+        "mode": {"enum": ["automatic", "quorum", "human"]},
+        "quorum_required": {"type": "integer", "minimum": 0},
+        "approvals": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_set", "policy_version"],
+      "properties": {
+        "policy_set": {"type": "string"},
+        "policy_version": {"type": "string"}
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "measurement"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "measurement": {"type": ["string", "null"]}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_checks", "passed_checks", "max_age_seconds", "evidence_age_seconds", "digital_twin_required"],
+      "properties": {
+        "required_checks": {"type": "array", "items": {"type": "string"}},
+        "passed_checks": {"type": "array", "items": {"type": "string"}},
+        "max_age_seconds": {"type": "integer", "minimum": 0},
+        "evidence_age_seconds": {"type": "integer", "minimum": 0},
+        "digital_twin_required": {"type": "boolean"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rollback_supported", "rollback_action"],
+      "properties": {
+        "rollback_supported": {"type": "boolean"},
+        "rollback_action": {"type": ["string", "null"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_refs", "correlation_id"],
+      "properties": {
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "correlation_id": {"type": "string"}
+      }
+    },
+    "revoked": {"type": "boolean", "default": false}
+  }
+}

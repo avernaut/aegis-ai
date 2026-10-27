@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.0 — Action Authorization Envelopes
+
+This release proposal turns bounded autonomy into a more explicit runtime contract.
+
+### Added
+
+- **Action Authorization Envelope (AAE)** specification for privileged agent actions.
+- Machine-readable binding of action, target, authority, delegation, risk, approval, policy version, attestation, verification, recovery, and provenance.
+- Risk-adaptive approval model for low/medium/high/critical actions.
+- Freshness constraints for verification evidence.
+- Explicit revocation and rollback metadata.
+- Reference examples for blocking a malicious source and isolating an edge node.
+- Dependency-free semantic validator for development and CI examples.
+
+### Security impact
+
+The proposed envelope makes missing authority a denial condition and creates an explicit enforcement boundary between agent reasoning and infrastructure execution. It is designed to reduce accidental overreach, stale-evidence execution, under-approved high-risk actions, and ambiguous delegation.
+
+### Compatibility
+
+This is intended as an additive contract. Existing agents can progressively adopt envelopes before privileged tool calls while non-privileged read operations remain unchanged.
+
+### Next
+
+- execution-gateway integration;
+- external revocation store;
+- signed/attested envelopes;
+- policy federation adapters;
+- provenance persistence;
+- negative security test suite.
+
 ## 0.5.0
 
 - Added bounded multi-agent capability delegation with Ed25519-signed delegated credentials.
